@@ -7,8 +7,8 @@ python-multipart==0.0.17
 python-dotenv==1.0.1
 aiofiles==24.1.0
 openai==1.58.1
-azure-ai-documentintelligence==1.0.0
 python-docx==1.1.2
+pdfplumber==0.11.4
 openpyxl==3.1.5
 httpx==0.28.1
 bcrypt==5.0.0

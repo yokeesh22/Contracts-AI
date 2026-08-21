@@ -3,9 +3,9 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import Navbar from './components/Navbar'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
-import SpecificationManager from './pages/SpecificationManager'
-import DeviationAnalyzer from './pages/DeviationAnalyzer'
-import AnalysisDetail from './pages/AnalysisDetail'
+import PlaybookManager from './pages/PlaybookManager'
+import ContractReviews from './pages/ContractReviews'
+import ReviewDetail from './pages/ReviewDetail'
 import UserManagement from './pages/UserManagement'
 
 function ProtectedLayout() {
@@ -16,14 +16,15 @@ function ProtectedLayout() {
       <Navbar />
       <main className="flex-1">
         <Routes>
-          <Route path="/"               element={<Dashboard />} />
-          <Route path="/specifications" element={<SpecificationManager />} />
-          <Route path="/analysis"       element={<DeviationAnalyzer />} />
-          <Route path="/analysis/:id"   element={<AnalysisDetail />} />
-          <Route path="/users"          element={<UserManagement />} />
-          {/* Legacy paths from the old 3-page layout */}
-          <Route path="/analyze"        element={<Navigate to="/analysis" replace />} />
-          <Route path="/transactions"   element={<Navigate to="/analysis" replace />} />
+          <Route path="/"             element={<Dashboard />} />
+          <Route path="/playbook"     element={<PlaybookManager />} />
+          <Route path="/reviews"      element={<ContractReviews />} />
+          <Route path="/reviews/:id"  element={<ReviewDetail />} />
+          <Route path="/users"        element={<UserManagement />} />
+          {/* Legacy paths from the deviation-analyzer layout this replaced */}
+          <Route path="/specifications" element={<Navigate to="/playbook" replace />} />
+          <Route path="/analysis"       element={<Navigate to="/reviews" replace />} />
+          <Route path="/analysis/:id"   element={<Navigate to="/reviews" replace />} />
           <Route path="*"               element={<Navigate to="/" replace />} />
         </Routes>
       </main>

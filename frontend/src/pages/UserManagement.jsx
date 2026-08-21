@@ -233,7 +233,7 @@ export default function UserManagement() {
   return (
     <PageLayout
       title="User Management"
-      subtitle="Manage who can access the Deviation Analyzer portal."
+      subtitle="Manage who can access the Contracts.AI portal."
       breadcrumbs={[{ label: 'Home' }, { label: 'User Management' }]}
       className="max-w-[1000px]"
       actions={

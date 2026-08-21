@@ -1,7 +1,13 @@
 import { useRef, useState } from 'react'
 import { UploadCloud, File, X } from 'lucide-react'
 
-export default function FileUpload({ accept = '.pdf,.docx,.doc', onFileSelect, selectedFile, label = 'Drop file here or click to browse' }) {
+export default function FileUpload({
+  accept = '.pdf,.docx',
+  onFileSelect,
+  selectedFile,
+  label = 'Drop file here or click to browse',
+  hint = 'Supported: DOCX, PDF',
+}) {
   const inputRef = useRef(null)
   const [dragging, setDragging] = useState(false)
 
@@ -56,7 +62,7 @@ export default function FileUpload({ accept = '.pdf,.docx,.doc', onFileSelect, s
         >
           <UploadCloud className={`h-8 w-8 ${dragging ? 'text-primary' : 'text-muted-foreground'}`} />
           <p className="text-center text-[13px] text-foreground">{label}</p>
-          <p className="text-xs text-muted-foreground">Supported: PDF, DOCX, DOC</p>
+          <p className="text-xs text-muted-foreground">{hint}</p>
           <input
             ref={inputRef}
             type="file"

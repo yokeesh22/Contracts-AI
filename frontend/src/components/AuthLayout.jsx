@@ -53,7 +53,7 @@ export default function AuthLayout({
                   userSelect: 'none',
                 }}
               >
-                Deviation Analyzer
+                Contracts.AI
               </span>
               <div style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
             </div>

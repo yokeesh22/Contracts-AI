@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # App
-    project_name: str = "Deviation Analyzer"
+    project_name: str = "Contracts.AI"
     environment: str = "local"
     secret_key: str = "changethis"
     first_superuser: str = "admin@ineffa.in"
@@ -11,12 +11,7 @@ class Settings(BaseSettings):
     backend_cors_origins: str = "http://localhost:5192"
 
     # Database
-    sqlite_db_path: str = "deviation_analyzer.db"
-
-    # Azure Form Recognizer
-    fr_endpoint: str = ""
-    fr_key: str = ""
-    fr_model_id: str = "prebuilt-layout"
+    sqlite_db_path: str = "contracts_ai.db"
 
     # Azure OpenAI
     azure_openai_endpoint: str = ""

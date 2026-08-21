@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
-  LayoutDashboard, FileText, GitCompare,
+  LayoutDashboard, BookOpen, FileSignature,
   LogOut, Bell, Menu, X, Users, User as UserIcon,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
@@ -9,9 +9,9 @@ import SterisLogo from './SterisLogo'
 import { cn } from '../lib/utils'
 
 const BASE_LINKS = [
-  { to: '/',               label: 'Dashboard',          icon: LayoutDashboard, end: true },
-  { to: '/specifications', label: 'Specifications',     icon: FileText        },
-  { to: '/analysis',       label: 'Deviation Analysis', icon: GitCompare      },
+  { to: '/',         label: 'Dashboard',        icon: LayoutDashboard, end: true },
+  { to: '/playbook', label: 'Playbook',         icon: BookOpen              },
+  { to: '/reviews',  label: 'Contract Reviews', icon: FileSignature         },
 ]
 const ADMIN_LINKS = [
   { to: '/users', label: 'Users', icon: Users },
@@ -76,7 +76,7 @@ export default function Navbar() {
             userSelect: 'none',
           }}
         >
-          Deviation Analyzer
+          Contracts.AI
         </span>
       </NavLink>
 

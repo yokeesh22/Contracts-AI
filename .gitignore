@@ -31,6 +31,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# ---- Local dev logs ----
+backend/*.log
+
 # ---- Editor / OS ----
 .DS_Store
 Thumbs.db

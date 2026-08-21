@@ -33,6 +33,37 @@
   --chart-3: #f59e0b;
   --chart-4: #dc2626;
   --chart-5: #7c3aed;
+
+  /* ── Redline classifications ───────────────────────────────────────────
+     Tokenised rather than inlined so findings, badges, summary chips and
+     the document pane all read from one place — the old table hardcoded
+     these hexes, which is why it never quite matched its surroundings. */
+  --unacceptable-bg: #fef2f2;
+  --unacceptable-fg: #b91c1c;
+  --unacceptable-border: #fecaca;
+  --unacceptable-dot: #ef4444;
+
+  --missing-bg: #f6f2fc;
+  --missing-fg: #6d28d9;
+  --missing-border: #ddd6fe;
+  --missing-dot: #8b5cf6;
+
+  --negotiable-bg: #fff7ed;
+  --negotiable-fg: #c2410c;
+  --negotiable-border: #fed7aa;
+  --negotiable-dot: #f97316;
+
+  --acceptable-bg: #f0fdf4;
+  --acceptable-fg: #15803d;
+  --acceptable-border: #bbf7d0;
+  --acceptable-dot: #22c55e;
+
+  /* Tracked-change marks. Chosen to stay legible against --card when a
+     whole clause is rewritten and the two colours sit side by side. */
+  --ins-bg: #e7f7ed;
+  --ins-fg: #08683a;
+  --del-bg: #fdeaec;
+  --del-fg: #a31226;
 }
 
 @layer base {
@@ -92,6 +123,48 @@
   }
   .card-subtitle {
     @apply mt-0.5 text-xs text-muted-foreground;
+  }
+
+  /* ── Document pane ────────────────────────────────────────────────────
+     The contract renders as a word-processor sheet from our own block
+     model rather than an embedded viewer, because the export has to write
+     revisions into the same paragraphs the reader sees. */
+  .doc-sheet {
+    @apply mx-auto my-6 max-w-[820px] bg-card px-14 py-12 shadow-card;
+    font-family: 'DM Sans', system-ui, sans-serif;
+    font-size: 13.5px;
+    line-height: 1.72;
+    color: var(--foreground);
+  }
+  .doc-block {
+    @apply -mx-3 scroll-mt-24 rounded-md px-3 py-1.5;
+    transition: background-color 180ms ease, box-shadow 180ms ease;
+  }
+  .doc-block-heading {
+    @apply mt-6 font-semibold;
+  }
+  /* The clause the reader jumped to from the findings list. */
+  .doc-block-active {
+    background: var(--brand-primary-light);
+    box-shadow: inset 3px 0 0 var(--primary);
+  }
+  .doc-block-flagged {
+    cursor: pointer;
+  }
+  .doc-block-flagged:hover {
+    background: var(--secondary);
+  }
+
+  .redline-ins {
+    background: var(--ins-bg);
+    color: var(--ins-fg);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .redline-del {
+    background: var(--del-bg);
+    color: var(--del-fg);
+    text-decoration: line-through;
   }
 }
 

@@ -35,7 +35,7 @@ export default function DataTable({
     <div className="flex flex-col">
       <div className="relative w-full overflow-x-auto rounded-lg border bg-card">
         <table className="w-full caption-bottom text-sm">
-          <thead className="bg-muted [&_tr]:border-b">
+          <thead className="sticky top-0 z-10 bg-muted shadow-[inset_0_-1px_0_var(--border)] [&_tr]:border-b">
             <tr>
               {columns.map((col) => (
                 <th

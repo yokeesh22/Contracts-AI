@@ -1,15 +1,24 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  FileText, BarChart2, CheckCircle2, Activity,
-  RefreshCw, ChevronRight, TrendingDown,
+  BookOpen, FileSignature, ShieldAlert, Activity,
+  RefreshCw, ChevronRight, TrendingDown, ListChecks,
 } from 'lucide-react'
 import StatusBadge from '../components/StatusBadge'
 import PageLayout from '../components/PageLayout'
 import { getStats } from '../services/api'
+import { CLASSIFICATIONS, metaFor } from '../lib/classifications'
 import { cn } from '../lib/utils'
 
-// ── Card shell (mirrors the IDP dashboard card) ──────────────────────────────
+// The donut needs literal colours (conic-gradient cannot read a token through
+// a JS string), so it mirrors the token values rather than replacing them.
+const DONUT_COLORS = {
+  UNACCEPTABLE: '#ef4444',
+  MISSING: '#8b5cf6',
+  NEGOTIABLE: '#f97316',
+  ACCEPTABLE: '#22c55e',
+}
+
 function Card({ children, className }) {
   return (
     <div
@@ -21,7 +30,6 @@ function Card({ children, className }) {
   )
 }
 
-// ── KPI card ─────────────────────────────────────────────────────────────────
 function KpiCard({ icon: Icon, iconBg, iconColor, label, value, sub }) {
   return (
     <Card>
@@ -48,7 +56,6 @@ function KpiCard({ icon: Icon, iconBg, iconColor, label, value, sub }) {
   )
 }
 
-// ── Donut chart (pure CSS conic-gradient) ────────────────────────────────────
 function DonutChart({ segments, total }) {
   if (total === 0) {
     return (
@@ -83,31 +90,37 @@ function DonutChart({ segments, total }) {
   )
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
 export default function Dashboard() {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
 
-  useEffect(() => {
-    getStats()
-      .then(setStats)
-      .catch(() => {})
-      .finally(() => setLoading(false))
+  const refresh = () => getStats().then(setStats).catch(() => {})
 
-    const iv = setInterval(() => getStats().then(setStats).catch(() => {}), 15000)
+  useEffect(() => {
+    refresh().finally(() => setLoading(false))
+    const iv = setInterval(refresh, 15000)
     return () => clearInterval(iv)
   }, [])
 
   const cls = stats?.classifications ?? {}
-  const totalCls = Object.values(cls).reduce((a, b) => a + b, 0)
+  const totalFindings = Object.values(cls).reduce((a, b) => a + b, 0)
+  const highRisk = (cls.UNACCEPTABLE ?? 0) + (cls.MISSING ?? 0)
 
-  const donutSegments = [
-    { color: '#22c55e', value: cls.COMPLIANT ?? 0,            label: 'Compliant',            dot: '#22c55e' },
-    { color: '#f97316', value: cls.ACCEPTABLE_DEVIATION ?? 0, label: 'Acceptable Deviation', dot: '#f97316' },
-    { color: '#ef4444', value: cls.CRITICAL_DEVIATION ?? 0,   label: 'Critical Deviation',   dot: '#ef4444' },
-    { color: '#cbd5e1', value: cls.NOT_APPLICABLE ?? 0,       label: 'Not Applicable',       dot: '#cbd5e1' },
-  ]
+  const donutSegments = CLASSIFICATIONS.map((key) => ({
+    key,
+    color: DONUT_COLORS[key],
+    value: cls[key] ?? 0,
+    label: metaFor(key).label,
+  }))
+
+  // How much of the AI's work reviewers actually keep — the most honest signal
+  // of whether the playbook matches how this team really negotiates.
+  const rs = stats?.redline_status ?? {}
+  const decided = (rs.accepted ?? 0) + (rs.rejected ?? 0) + (rs.modified ?? 0)
+  const keepRate = decided > 0
+    ? Math.round((((rs.accepted ?? 0) + (rs.modified ?? 0)) / decided) * 100)
+    : null
 
   if (loading) {
     return (
@@ -120,83 +133,82 @@ export default function Dashboard() {
   return (
     <PageLayout
       title="Dashboard"
-      subtitle="Review key metrics and recent analysis activity across your organization."
+      subtitle="Contract review activity and the risk profile of what has been reviewed."
       breadcrumbs={[{ label: 'Home' }, { label: 'Dashboard' }]}
       actions={
-        <button onClick={() => getStats().then(setStats).catch(() => {})} className="btn-secondary">
+        <button onClick={refresh} className="btn-secondary">
           <RefreshCw className="h-3.5 w-3.5" />
           Refresh
         </button>
       }
     >
-      {/* KPI cards */}
       <div className="stagger-children mb-4 grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard
-          icon={FileText}
+          icon={FileSignature}
           iconBg="#e8f2fc"
           iconColor="#016ac9"
-          label="Specifications"
-          value={stats?.total_specifications ?? 0}
-          sub={`${stats?.completed_specifications ?? 0} extracted`}
+          label="Contracts Reviewed"
+          value={stats?.completed_reviews ?? 0}
+          sub={`${stats?.total_reviews ?? 0} uploaded in total`}
         />
         <KpiCard
           icon={Activity}
           iconBg="#fff7ed"
           iconColor="#c2410c"
-          label="Awaiting / Running"
-          value={(stats?.total_analyses ?? 0) - (stats?.completed_analyses ?? 0)}
-          sub={`${stats?.total_analyses ?? 0} total sessions`}
+          label="In Progress"
+          value={(stats?.total_reviews ?? 0) - (stats?.completed_reviews ?? 0)}
+          sub="reviews still running"
         />
         <KpiCard
-          icon={CheckCircle2}
-          iconBg="#f0fdf4"
-          iconColor="#15803d"
-          label="Approval Rate"
-          value={totalCls > 0 ? `${Math.round(((cls.COMPLIANT ?? 0) / totalCls) * 100)}%` : '—'}
-          sub={`${cls.COMPLIANT ?? 0} compliant · ${cls.CRITICAL_DEVIATION ?? 0} critical`}
+          icon={ShieldAlert}
+          iconBg="#fef2f2"
+          iconColor="#b91c1c"
+          label="High-Risk Findings"
+          value={highRisk}
+          sub={`${cls.UNACCEPTABLE ?? 0} unacceptable · ${cls.MISSING ?? 0} missing`}
         />
         <KpiCard
-          icon={BarChart2}
+          icon={BookOpen}
           iconBg="#f5f3ff"
           iconColor="#6d28d9"
-          label="Requirements Analyzed"
-          value={stats?.total_requirements ?? 0}
-          sub={`across ${stats?.completed_analyses ?? 0} completed sessions`}
+          label="Playbook Positions"
+          value={stats?.total_rules ?? 0}
+          sub={`across ${stats?.total_playbooks ?? 0} playbook(s)`}
         />
       </div>
 
-      {/* Middle row: classification + recent sessions */}
       <div className="stagger-children mb-4 grid grid-cols-1 gap-3.5 lg:grid-cols-5">
-        {/* Status distribution */}
         <Card className="lg:col-span-2">
           <div className="px-5 pt-4">
-            <div className="card-title">Status Distribution</div>
-            <div className="card-subtitle">Current breakdown across all requirements</div>
+            <div className="card-title">Risk Profile</div>
+            <div className="card-subtitle">All findings across reviewed contracts</div>
           </div>
 
           <div className="p-5 pt-4">
-            {totalCls === 0 ? (
+            {totalFindings === 0 ? (
               <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
                 <TrendingDown className="mb-2 h-10 w-10 opacity-40" />
-                <p className="text-[13px]">No data yet</p>
+                <p className="text-[13px]">No findings yet</p>
               </div>
             ) : (
               <div className="flex items-center gap-6">
-                <DonutChart segments={donutSegments} total={totalCls} />
+                <DonutChart segments={donutSegments} total={totalFindings} />
                 <div className="min-w-0 flex-1 space-y-3">
-                  {donutSegments.map(({ label, value, dot }) => (
-                    <div key={label} className="flex items-center justify-between gap-2">
+                  {donutSegments.map(({ key, label, value, color }) => (
+                    <div key={key} className="flex items-center justify-between gap-2">
                       <div className="flex min-w-0 items-center gap-2">
                         <span
                           className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
-                          style={{ background: dot }}
+                          style={{ background: color }}
                         />
                         <span className="truncate text-[12.5px] text-muted-foreground">{label}</span>
                       </div>
                       <div className="flex flex-shrink-0 items-center gap-2">
-                        <span className="font-mono-num text-[14px] tabular-nums text-foreground/85">{value}</span>
+                        <span className="font-mono-num text-[14px] tabular-nums text-foreground/85">
+                          {value}
+                        </span>
                         <span className="w-8 text-right text-xs text-muted-foreground/75">
-                          {totalCls > 0 ? `${Math.round((value / totalCls) * 100)}%` : '0%'}
+                          {Math.round((value / totalFindings) * 100)}%
                         </span>
                       </div>
                     </div>
@@ -207,15 +219,14 @@ export default function Dashboard() {
           </div>
         </Card>
 
-        {/* Recent activity */}
         <Card className="lg:col-span-3">
           <div className="flex items-start justify-between px-5 pt-4">
             <div>
-              <div className="card-title">Recent Activity</div>
-              <div className="card-subtitle">Latest analysis sessions</div>
+              <div className="card-title">Recent Reviews</div>
+              <div className="card-subtitle">Latest contracts put through the playbook</div>
             </div>
             <button
-              onClick={() => navigate('/analysis')}
+              onClick={() => navigate('/reviews')}
               className="flex items-center gap-1 text-xs font-medium text-primary transition-colors hover:text-primary-hover"
             >
               View all <ChevronRight className="h-3 w-3" />
@@ -223,23 +234,23 @@ export default function Dashboard() {
           </div>
 
           <div className="p-3 pt-3">
-            {!stats?.recent_sessions?.length ? (
+            {!stats?.recent_reviews?.length ? (
               <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
-                <BarChart2 className="mb-2 h-10 w-10 opacity-40" />
-                <p className="text-[13px]">No sessions yet</p>
+                <FileSignature className="mb-2 h-10 w-10 opacity-40" />
+                <p className="text-[13px]">No contracts reviewed yet</p>
                 <button
-                  onClick={() => navigate('/analysis')}
+                  onClick={() => navigate('/reviews')}
                   className="mt-3 text-xs font-medium text-primary hover:text-primary-hover"
                 >
-                  Start your first analysis →
+                  Review your first contract →
                 </button>
               </div>
             ) : (
               <div className="space-y-0.5">
-                {stats.recent_sessions.map((s, i) => (
+                {stats.recent_reviews.map((r, i) => (
                   <div
-                    key={s.id}
-                    onClick={() => navigate(`/analysis/${s.id}`)}
+                    key={r.id}
+                    onClick={() => navigate(`/reviews/${r.id}`)}
                     className="group flex cursor-pointer items-center gap-3 rounded-md px-2.5 py-2.5 transition-colors hover:bg-muted"
                   >
                     <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-accent">
@@ -248,13 +259,18 @@ export default function Dashboard() {
                       </span>
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-medium text-foreground">{s.urs_name}</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {s.analyzed_count}/{s.total_requirements} requirements ·{' '}
-                        {new Date(s.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      <p className="truncate text-[13px] font-medium text-foreground">{r.name}</p>
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                        {r.counterparty ? `${r.counterparty} · ` : ''}
+                        {r.total_clauses} findings ·{' '}
+                        {new Date(r.created_at).toLocaleDateString('en-GB', {
+                          day: '2-digit',
+                          month: 'short',
+                          year: 'numeric',
+                        })}
                       </p>
                     </div>
-                    <StatusBadge status={s.status} />
+                    <StatusBadge status={r.status} />
                     <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground/50 transition-colors group-hover:text-primary" />
                   </div>
                 ))}
@@ -264,32 +280,54 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Processing health / quick-actions row */}
       <div className="stagger-children grid grid-cols-1 gap-3.5 sm:grid-cols-3">
         <Card>
           <div className="px-5 pt-4">
-            <div className="card-title">Processing Health</div>
+            <div className="card-title">Review Activity</div>
+            <div className="card-subtitle">How reviewers are handling suggestions</div>
           </div>
           <div className="p-5 pt-3">
             {[
-              { label: 'Spec. extraction rate', value: stats?.completed_specifications > 0 ? `${Math.round((stats.completed_specifications / stats.total_specifications) * 100)}%` : '—' },
-              { label: 'Analysis completion rate', value: stats?.completed_analyses > 0 ? `${Math.round((stats.completed_analyses / stats.total_analyses) * 100)}%` : '—' },
-              { label: 'Total sessions', value: stats?.total_analyses ?? 0 },
-            ].map(({ label, value }) => (
+              {
+                label: 'Suggestions kept',
+                value: keepRate == null ? '—' : `${keepRate}%`,
+                title: 'Accepted or edited, as a share of everything reviewers decided on. A low rate means the playbook needs tuning.',
+              },
+              { label: 'Awaiting review', value: rs.suggested ?? 0 },
+              { label: 'Rejected', value: rs.rejected ?? 0 },
+              { label: 'Total findings', value: stats?.total_redlines ?? 0 },
+            ].map(({ label, value, title }) => (
               <div
                 key={label}
                 className="flex items-center justify-between border-b py-2.5 last:border-0"
+                title={title}
               >
                 <span className="text-[12.5px] text-muted-foreground">{label}</span>
-                <span className="font-mono-num text-[14px] tabular-nums text-foreground/85">{value}</span>
+                <span className="font-mono-num text-[14px] tabular-nums text-foreground/85">
+                  {value}
+                </span>
               </div>
             ))}
           </div>
         </Card>
 
         {[
-          { label: 'Upload Specification', desc: 'Add a new technical document', icon: FileText,  path: '/specifications', bg: '#e8f2fc', color: '#016ac9' },
-          { label: 'Run Analysis',         desc: 'Compare URS against a spec',   icon: BarChart2, path: '/analysis',       bg: '#f5f3ff', color: '#6d28d9' },
+          {
+            label: 'Review a Contract',
+            desc: 'Upload vendor paper and redline it',
+            icon: FileSignature,
+            path: '/reviews',
+            bg: '#e8f2fc',
+            color: '#016ac9',
+          },
+          {
+            label: 'Tune the Playbook',
+            desc: 'Edit the positions reviews are judged against',
+            icon: ListChecks,
+            path: '/playbook',
+            bg: '#f5f3ff',
+            color: '#6d28d9',
+          },
         ].map((a) => (
           <Card key={a.path}>
             <button onClick={() => navigate(a.path)} className="w-full p-4 text-left">
