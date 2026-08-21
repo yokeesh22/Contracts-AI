@@ -1,0 +1,202 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Design tokens (shared STERIS system, mirrored from IDP) ───────────────── */
+:root {
+  /* Brand palette from design ref */
+  --brand-primary: #016ac9;
+  --brand-primary-hover: #0158aa;
+  --brand-primary-light: #e8f2fc;
+
+  --radius: 0.625rem;
+  --background: #f0f3f8;
+  --foreground: #0e1520;
+  --card: #ffffff;
+  --card-foreground: #0e1520;
+  --popover: #ffffff;
+  --popover-foreground: #0e1520;
+  --primary: #016ac9;
+  --primary-foreground: #ffffff;
+  --secondary: #f7f8fa;
+  --secondary-foreground: #0e1520;
+  --muted: #f7f8fa;
+  --muted-foreground: #475569;
+  --accent: #e8f2fc;
+  --accent-foreground: #016ac9;
+  --destructive: #dc2626;
+  --border: #e2e6ed;
+  --input: #e2e6ed;
+  --ring: #016ac9;
+  --chart-1: #016ac9;
+  --chart-2: #16a34a;
+  --chart-3: #f59e0b;
+  --chart-4: #dc2626;
+  --chart-5: #7c3aed;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html,
+  body {
+    font-family: 'DM Sans', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  button,
+  [role='button'] {
+    cursor: pointer;
+  }
+}
+
+@layer components {
+  .card {
+    @apply overflow-hidden rounded-xl border bg-card p-5 shadow-card;
+  }
+
+  .btn-primary {
+    @apply inline-flex h-9 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-all hover:bg-primary-hover disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .btn-secondary {
+    @apply inline-flex h-9 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md border bg-card px-4 text-sm font-medium text-foreground shadow-sm transition-all hover:bg-secondary disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .btn-danger {
+    @apply inline-flex h-9 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-destructive px-4 text-sm font-medium text-white transition-all hover:opacity-90 disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .btn-ghost {
+    @apply inline-flex h-9 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground;
+  }
+
+  .input {
+    @apply h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .label {
+    @apply mb-1.5 block text-sm font-medium leading-none text-foreground;
+  }
+
+  .stat-card {
+    @apply overflow-hidden rounded-xl border bg-card p-4 shadow-card;
+  }
+
+  /* Section heading used inside cards */
+  .card-title {
+    @apply text-[13.5px] font-semibold text-foreground;
+  }
+  .card-subtitle {
+    @apply mt-0.5 text-xs text-muted-foreground;
+  }
+}
+
+@layer utilities {
+  .font-mono-num {
+    font-family: 'DM Mono', ui-monospace, monospace;
+  }
+
+  /* ---------- Subtle motion system ---------- */
+
+  /* Page-level entrance: a quick fade + tiny slide-up. Drop this on the
+     top-level container of a route so navigating between routes feels
+     less jarring without ever blocking interactivity. */
+  .page-enter {
+    animation: pageIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .tab-panel-enter {
+    animation: panelIn 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  /* Stagger entrance for cards in a grid. Each child cycles through a
+     6-step delay ladder so the first six animate visibly left-to-right
+     and any extras blend in without piling up on a long delay. */
+  .stagger-children > * {
+    animation: cardIn 0.36s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .stagger-children > *:nth-child(6n + 1) {
+    animation-delay: 30ms;
+  }
+  .stagger-children > *:nth-child(6n + 2) {
+    animation-delay: 70ms;
+  }
+  .stagger-children > *:nth-child(6n + 3) {
+    animation-delay: 110ms;
+  }
+  .stagger-children > *:nth-child(6n + 4) {
+    animation-delay: 150ms;
+  }
+  .stagger-children > *:nth-child(6n + 5) {
+    animation-delay: 190ms;
+  }
+  .stagger-children > *:nth-child(6n) {
+    animation-delay: 230ms;
+  }
+
+  /* A reusable "lift on hover" utility for cards & list rows. Pair with
+     a transition on the parent — kept as a class so we don't sprinkle
+     transform values inline. */
+  .hover-lift {
+    transition:
+      transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1),
+      border-color 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(14, 21, 32, 0.08);
+  }
+}
+
+/* ---------- Keyframes ---------- */
+
+@keyframes pageIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes panelIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes cardIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Honor the user's OS-level "reduce motion" setting by collapsing all
+   non-essential animations to a fade. Loaders, spinners, and other
+   functional animations still run. */
+@media (prefers-reduced-motion: reduce) {
+  .page-enter,
+  .tab-panel-enter,
+  .stagger-children > *,
+  .hover-lift {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}
