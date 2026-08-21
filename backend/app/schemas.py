@@ -167,10 +167,15 @@ class ContractReviewOut(BaseModel):
 
 class DocumentBlock(BaseModel):
     index: int
-    kind: str
+    kind: str  # heading | para | row
     section: str
     text: str
     page: int | None = None
+    # Present on `row` blocks so the viewer can lay a table out as a table
+    # rather than as one pipe-joined line. Order forms and fee schedules carry
+    # negotiable terms, so they have to stay readable.
+    cells: list[str] | None = None
+    is_header: bool = False
 
 
 class ContractReviewDetail(ContractReviewOut):

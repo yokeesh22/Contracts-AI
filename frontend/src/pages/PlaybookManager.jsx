@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   BookOpen,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
-  Info,
+  ChevronsLeft,
+  ChevronsRight,
   Loader2,
   Pencil,
   Plus,
@@ -51,6 +53,8 @@ export default function PlaybookManager() {
   const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState(null)
   const [editing, setEditing] = useState(null)
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(10)
 
   useEffect(() => {
     getPlaybooks().then((list) => {
@@ -82,6 +86,19 @@ export default function PlaybookManager() {
         (r.preferred_position || '').toLowerCase().includes(needle),
     )
   }, [playbook, query])
+
+  const pageCount = Math.max(1, Math.ceil(rules.length / pageSize))
+  const safePage = Math.min(page, pageCount - 1)
+  const pageRules = useMemo(
+    () => rules.slice(safePage * pageSize, (safePage + 1) * pageSize),
+    [rules, safePage, pageSize],
+  )
+
+  // Searching or switching playbook changes what "page 1" means, so start over
+  // rather than stranding the reader on a page that no longer exists.
+  useEffect(() => {
+    setPage(0)
+  }, [query, selectedId])
 
   const handleSave = async (values) => {
     if (editing?.id) {
@@ -118,21 +135,6 @@ export default function PlaybookManager() {
         </button>
       }
     >
-      {/* Provenance warning — these positions are inferred until legal confirms
-          them, and the UI should never let that fact get lost. */}
-      <div
-        className="mb-4 flex items-start gap-2.5 rounded-lg border px-4 py-3 text-[13px]"
-        style={{ background: '#fffbeb', color: '#92400e', borderColor: '#fde68a' }}
-      >
-        <Info className="mt-[2px] h-4 w-4 shrink-0" />
-        <div>
-          <span className="font-medium">These positions are inferred, not approved.</span>{' '}
-          They were derived from the sample vendor agreements and encode market norms
-          rather than confirmed policy. Each carries its evidence under &ldquo;Basis&rdquo;.
-          Replace them as the business team confirms real positions.
-        </div>
-      </div>
-
       {loading ? (
         <div className="flex justify-center py-16">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -177,7 +179,7 @@ export default function PlaybookManager() {
           </div>
 
           <div className="space-y-2">
-            {rules.map((rule) => (
+            {pageRules.map((rule) => (
               <RuleRow
                 key={rule.id}
                 rule={rule}
@@ -193,6 +195,20 @@ export default function PlaybookManager() {
               </div>
             )}
           </div>
+
+          {rules.length > 0 && (
+            <Pagination
+              total={rules.length}
+              page={safePage}
+              pageSize={pageSize}
+              pageCount={pageCount}
+              onPage={setPage}
+              onPageSize={(size) => {
+                setPageSize(size)
+                setPage(0)
+              }}
+            />
+          )}
         </>
       )}
 
@@ -202,6 +218,77 @@ export default function PlaybookManager() {
         onSave={handleSave}
       />
     </PageLayout>
+  )
+}
+
+/** Mirrors the DataTable footer so both list surfaces page the same way. */
+function Pagination({ total, page, pageSize, pageCount, onPage, onPageSize }) {
+  const from = total === 0 ? 0 : page * pageSize + 1
+  const to = Math.min((page + 1) * pageSize, total)
+
+  const step = (target) => () => onPage(Math.min(Math.max(target, 0), pageCount - 1))
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-3 px-1 text-[12.5px] text-muted-foreground">
+      <span>
+        Showing {from} to {to} of {total} positions
+      </span>
+      <div className="flex-1" />
+      <label className="flex items-center gap-2">
+        Rows
+        <select
+          className="input h-7 w-auto py-0 text-[12.5px]"
+          value={pageSize}
+          onChange={(e) => onPageSize(Number(e.target.value))}
+        >
+          {[10, 25, 50, 100].map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
+      </label>
+      <span className="font-mono-num">
+        Page {page + 1} of {pageCount}
+      </span>
+      <div className="flex items-center gap-1">
+        <PageButton onClick={step(0)} disabled={page === 0} label="First page">
+          <ChevronsLeft className="h-3.5 w-3.5" />
+        </PageButton>
+        <PageButton onClick={step(page - 1)} disabled={page === 0} label="Previous page">
+          <ChevronLeft className="h-3.5 w-3.5" />
+        </PageButton>
+        <PageButton
+          onClick={step(page + 1)}
+          disabled={page >= pageCount - 1}
+          label="Next page"
+        >
+          <ChevronRight className="h-3.5 w-3.5" />
+        </PageButton>
+        <PageButton
+          onClick={step(pageCount - 1)}
+          disabled={page >= pageCount - 1}
+          label="Last page"
+        >
+          <ChevronsRight className="h-3.5 w-3.5" />
+        </PageButton>
+      </div>
+    </div>
+  )
+}
+
+function PageButton({ children, onClick, disabled, label }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      className="flex h-7 w-7 items-center justify-center rounded-md border bg-card text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+    >
+      {children}
+    </button>
   )
 }
 

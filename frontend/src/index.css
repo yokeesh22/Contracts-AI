@@ -155,6 +155,68 @@
     background: var(--secondary);
   }
 
+  /* Word documents converted for the Source view. mammoth emits bare HTML
+     with no classes, so these style its output to match the sheet. */
+  .doc-source h1,
+  .doc-source h2,
+  .doc-source h3 {
+    @apply mb-2 mt-5 font-semibold;
+  }
+  .doc-source h1 { @apply text-[17px]; }
+  .doc-source h2 { @apply text-[15px]; }
+  .doc-source h3 { @apply text-[14px]; }
+  .doc-source p {
+    @apply mb-2.5;
+  }
+  .doc-source ol,
+  .doc-source ul {
+    @apply mb-2.5 ml-5 list-outside;
+  }
+  .doc-source ol { @apply list-decimal; }
+  .doc-source ul { @apply list-disc; }
+  .doc-source li { @apply mb-1; }
+  .doc-source table {
+    @apply my-3 w-full border-collapse text-[12.5px];
+  }
+  .doc-source td,
+  .doc-source th {
+    @apply border px-2.5 py-1.5 align-top;
+  }
+  .doc-source img {
+    @apply my-3 max-w-full;
+  }
+  .doc-source a {
+    @apply text-primary underline;
+  }
+
+  /* Tables inside the contract — order forms, fee schedules, SLA credits.
+     Wide ones scroll inside their own container so the sheet never does. */
+  .doc-table-wrap {
+    @apply -mx-1 my-3 overflow-x-auto;
+  }
+  .doc-table {
+    @apply w-full border-collapse text-[12.5px];
+  }
+  .doc-table th,
+  .doc-table td {
+    @apply border px-2.5 py-1.5 align-top;
+    line-height: 1.5;
+  }
+  .doc-table th {
+    @apply bg-secondary text-left font-semibold;
+  }
+  .doc-table tr.doc-block-flagged {
+    cursor: pointer;
+  }
+  .doc-table tr.doc-block-flagged:hover td,
+  .doc-table tr.doc-block-flagged:hover th {
+    background: var(--secondary);
+  }
+  .doc-table tr.doc-block-active td,
+  .doc-table tr.doc-block-active th {
+    background: var(--brand-primary-light);
+  }
+
   .redline-ins {
     background: var(--ins-bg);
     color: var(--ins-fg);

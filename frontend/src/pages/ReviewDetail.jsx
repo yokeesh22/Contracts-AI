@@ -5,16 +5,19 @@ import {
   ArrowLeft,
   Download,
   FileText,
-  Info,
   ListChecks,
   Loader2,
+  Plus,
   RefreshCw,
 } from 'lucide-react'
 import ContractViewer from '../components/ContractViewer'
+import ErrorBoundary from '../components/ErrorBoundary'
+import SourceDocument from '../components/SourceDocument'
 import RedlineList from '../components/RedlineList'
 import Dialog from '../components/Dialog'
 import StatusBadge from '../components/StatusBadge'
 import {
+  contractFileUrl,
   createRedline,
   deleteRedline,
   exportIssues,
@@ -25,7 +28,8 @@ import {
 import { cn } from '../lib/utils'
 
 const VIEW_MODES = [
-  { key: 'original', label: 'Original', hint: 'The contract exactly as received.' },
+  { key: 'source', label: 'Source', hint: 'The uploaded PDF or Word file itself.' },
+  { key: 'original', label: 'Original', hint: 'Extracted text, exactly as received.' },
   { key: 'redlined', label: 'Redlined', hint: 'Our proposed changes, marked up.' },
   { key: 'final', label: 'Final', hint: 'Every kept change applied, read clean.' },
 ]
@@ -171,13 +175,12 @@ export default function ReviewDetail() {
           <ArrowLeft className="h-4 w-4" />
         </Link>
         <div className="min-w-0">
-          <h1 className="truncate text-[15px] font-semibold leading-tight text-foreground">
+          <h1
+            className="truncate text-[15px] font-semibold leading-tight text-foreground"
+            title={`${review.file_name} · reviewed against ${review.playbook?.name ?? ''}`}
+          >
             {review.name}
           </h1>
-          <p className="truncate text-[12px] text-muted-foreground">
-            {review.counterparty ? `${review.counterparty} · ` : ''}
-            {review.file_name} · reviewed against {review.playbook?.name}
-          </p>
         </div>
         <StatusBadge status={review.status} />
         <div className="flex-1" />
@@ -234,20 +237,15 @@ export default function ReviewDetail() {
             )}
           </div>
 
-          {review.doc_kind === 'pdf' && (
-            <div
-              className="flex shrink-0 items-start gap-2 border-b px-3 py-2 text-[12px]"
-              style={{ background: '#fffbeb', color: '#92400e', borderColor: '#fde68a' }}
-            >
-              <Info className="mt-[1px] h-3.5 w-3.5 shrink-0" />
-              <span>
-                Uploaded as PDF. Redlining works here, but the exported Word file is
-                rebuilt from extracted text and will not keep the original formatting.
-              </span>
-            </div>
-          )}
-
           <div className="min-h-0 flex-1">
+            <ErrorBoundary label="The document could not be displayed">
+            {mode === 'source' ? (
+              <SourceDocument
+                url={contractFileUrl(review.id)}
+                fileName={review.file_name}
+                docKind={review.doc_kind}
+              />
+            ) : (
             <ContractViewer
               blocks={review.blocks}
               redlines={review.redlines}
@@ -258,6 +256,8 @@ export default function ReviewDetail() {
               selectionEnabled={done}
               onSelectBlocks={setSelection}
             />
+            )}
+            </ErrorBoundary>
           </div>
         </div>
 
@@ -268,6 +268,20 @@ export default function ReviewDetail() {
             <span className="flex-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Findings
             </span>
+            <button
+              type="button"
+              onClick={() => setAddOpen(true)}
+              disabled={!done}
+              className="btn-secondary h-7 px-2.5 text-[12px]"
+              title={
+                selection
+                  ? 'Add a redline on the text you selected'
+                  : 'Select text in the document first, or add an unanchored point'
+              }
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {selection ? 'Redline selection' : 'Add redline'}
+            </button>
             <span className="font-mono-num text-xs text-muted-foreground">
               {review.redlines?.length ?? 0}
             </span>
@@ -306,16 +320,16 @@ export default function ReviewDetail() {
           )}
 
           <div className="min-h-0 flex-1">
+            <ErrorBoundary label="The findings could not be displayed">
             <RedlineList
               redlines={review.redlines || []}
               activeRedlineId={activeId}
               onSelect={selectRedline}
               onUpdate={handleUpdate}
               onDelete={handleDelete}
-              onAdd={() => setAddOpen(true)}
-              pendingSelection={selection}
               disabled={!done}
             />
+            </ErrorBoundary>
           </div>
         </div>
       </div>

@@ -13,6 +13,12 @@ class Settings(BaseSettings):
     # Database
     sqlite_db_path: str = "contracts_ai.db"
 
+    # Azure Document Intelligence - preferred PDF extractor (real paragraphs
+    # plus OCR). Leave blank to fall back to local pdfplumber extraction.
+    fr_endpoint: str = ""
+    fr_key: str = ""
+    fr_model_id: str = "prebuilt-layout"
+
     # Azure OpenAI
     azure_openai_endpoint: str = ""
     azure_openai_api_key: str = ""

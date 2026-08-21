@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  ArrowRight,
   Check,
   ChevronDown,
-  ChevronRight,
   Pencil,
-  RotateCcw,
   Trash2,
   Undo2,
   X,
@@ -19,6 +18,11 @@ import { cn, scrollIntoView } from '../lib/utils'
  * reviewer has to read in full — original text, proposed text, rationale,
  * assessment and status. Truncating any of those into a cell defeats the point
  * of the review.
+ *
+ * Structure follows how a clause actually gets read: what is wrong (title and
+ * severity), why it matters (rationale), what to do about it (the edit), then
+ * the decision. Severity is carried by a left edge stripe rather than a dot and
+ * a badge, so a reviewer can scan the column for red without reading anything.
  *
  * All three editing affordances live here, because this is the only surface
  * where edits are safe: editing in the document pane would desync the block
@@ -42,6 +46,8 @@ export default function RedlineCard({
   const meta = metaFor(redline.classification)
   const isRejected = redline.status === 'rejected'
   const isMissing = redline.classification === 'MISSING'
+  const isAnchored = redline.block_start != null
+  const decided = redline.status !== 'suggested'
 
   useEffect(() => {
     setDraftText(redline.proposed_text || '')
@@ -82,268 +88,294 @@ export default function RedlineCard({
     setEditing(false)
   }
 
-  const location = redline.block_start == null
-    ? 'Not in this contract'
-    : [redline.doc_section, redline.clause_ref].filter(Boolean).join(' · ') ||
-      `Block ${redline.block_start}`
+  const positions = (redline.covers?.length ? redline.covers : [redline.clause_type]).filter(
+    Boolean,
+  )
 
   return (
     <div
       ref={cardRef}
       onClick={() => onSelect?.(redline.id)}
       className={cn(
-        'hover-lift cursor-pointer overflow-hidden rounded-xl border bg-card shadow-card',
-        isActive && 'ring-2 ring-primary',
-        isRejected && 'opacity-60',
+        'group/card relative overflow-hidden rounded-xl border bg-card transition-all',
+        isAnchored ? 'cursor-pointer' : 'cursor-default',
+        isActive
+          ? 'border-primary shadow-card-hover ring-1 ring-primary'
+          : 'shadow-card hover:shadow-card-hover',
+        isRejected && 'opacity-55',
       )}
-      style={isActive ? undefined : { borderColor: meta.border }}
     >
-      {/* Header */}
-      <div className="flex items-start gap-2.5 px-4 pb-2.5 pt-3.5">
-        <span
-          className="mt-[5px] h-2 w-2 shrink-0 rounded-full"
-          style={{ background: meta.dot }}
-        />
-        <div className="min-w-0 flex-1">
-          <div className="text-[13.5px] font-semibold leading-snug text-foreground">
-            {redline.clause_title || humaniseClauseType(redline.clause_type)}
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-muted-foreground">
-            <span className="font-mono-num">{location}</span>
-            {redline.page != null && (
-              <>
-                <span aria-hidden>·</span>
-                <span className="font-mono-num">p.{redline.page}</span>
-              </>
-            )}
-          </div>
+      {/* Severity edge — lets the column be scanned without reading */}
+      <span
+        aria-hidden
+        className="absolute inset-y-0 left-0 w-[3px]"
+        style={{ background: meta.dot }}
+      />
 
-          {/* Every position this one edit resolves. A clause routinely fails
-              more than one, and they are fixed together because two edits to
-              the same paragraph cannot both survive into the export. */}
-          {(redline.covers?.length ? redline.covers : [redline.clause_type])
-            .filter(Boolean)
-            .length > 0 && (
-            <div className="mt-1.5 flex flex-wrap gap-1">
-              {(redline.covers?.length ? redline.covers : [redline.clause_type])
-                .filter(Boolean)
-                .map((type) => (
-                  <span
-                    key={type}
-                    className="rounded border bg-secondary px-1.5 py-0.5 text-[10.5px] text-muted-foreground"
-                  >
-                    {humaniseClauseType(type)}
-                  </span>
-                ))}
+      <div className="pl-[15px]">
+        {/* Title row */}
+        <div className="flex items-start gap-3 px-3 pb-2 pt-3">
+          <div className="min-w-0 flex-1">
+            <h3
+              className={cn(
+                'text-[13.5px] font-semibold leading-snug text-foreground',
+                isAnchored &&
+                  'decoration-primary underline-offset-2 group-hover/card:underline',
+              )}
+              title={isAnchored ? 'Show this clause in the document' : undefined}
+            >
+              {redline.clause_title || humaniseClauseType(redline.clause_type)}
+            </h3>
+
+            <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11.5px] text-muted-foreground">
+              <span
+                className="rounded px-1.5 py-0.5 text-[10.5px] font-medium uppercase tracking-wide"
+                style={{ background: meta.bg, color: meta.fg }}
+                title={meta.hint}
+              >
+                {meta.short}
+              </span>
+              {redline.clause_ref && (
+                <span className="font-mono-num">{redline.clause_ref}</span>
+              )}
+              {redline.doc_section && redline.doc_section !== 'Main Agreement' && (
+                <span className="truncate">· {redline.doc_section}</span>
+              )}
+              {redline.page != null && (
+                <span className="font-mono-num">· p.{redline.page}</span>
+              )}
+              {!isAnchored && <span className="italic">· not in this contract</span>}
             </div>
-          )}
-        </div>
-        <span
-          className="shrink-0 whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-medium"
-          style={{ background: meta.bg, color: meta.fg, borderColor: meta.border }}
-          title={meta.hint}
-        >
-          {meta.short}
-        </span>
-      </div>
+          </div>
 
-      {/* Rationale — the part that persuades, so it is never truncated away */}
-      {(redline.rationale || editing) && (
-        <div className="px-4 pb-3" onClick={(e) => e.stopPropagation()}>
+          {decided && <DecisionChip status={redline.status} />}
+        </div>
+
+        {/* Why it matters */}
+        <div className="px-3 pb-2.5" onClick={(e) => e.stopPropagation()}>
           {editing ? (
             <>
-              <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                Rationale (becomes the margin comment in Word)
-              </label>
+              <FieldLabel>Rationale — becomes the margin comment in Word</FieldLabel>
               <textarea
-                className="input h-auto min-h-[70px] w-full resize-y py-2 leading-relaxed"
+                className="input h-auto min-h-[72px] w-full resize-y py-2 text-[12.5px] leading-relaxed"
                 value={draftRationale}
                 onChange={(e) => setDraftRationale(e.target.value)}
               />
             </>
           ) : (
-            <p className="text-[12.5px] leading-relaxed text-muted-foreground">
-              {redline.rationale}
-            </p>
+            redline.rationale && (
+              <p className="text-[12.5px] leading-[1.6] text-muted-foreground">
+                {redline.rationale}
+              </p>
+            )
           )}
         </div>
-      )}
 
-      {/* The edit itself */}
-      <div className="border-t" onClick={(e) => e.stopPropagation()}>
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          className="flex w-full items-center gap-1.5 px-4 py-2 text-left text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        >
-          {expanded ? (
-            <ChevronDown className="h-3.5 w-3.5" />
-          ) : (
-            <ChevronRight className="h-3.5 w-3.5" />
-          )}
-          {isMissing ? 'Clause to add' : 'Proposed change'}
-          {!isMissing && (redline.words_added > 0 || redline.words_removed > 0) && (
-            <span className="ml-1 font-mono-num text-[11px]">
-              <span style={{ color: 'var(--ins-fg)' }}>+{redline.words_added}</span>{' '}
-              <span style={{ color: 'var(--del-fg)' }}>-{redline.words_removed}</span>
-            </span>
-          )}
-        </button>
-
-        {expanded && (
-          <div className="tab-panel-enter space-y-3 px-4 pb-3.5">
-            {!isMissing && redline.original_text && (
-              <Section title="As written by the counterparty">
-                <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-muted-foreground">
-                  {redline.original_text}
-                </p>
-              </Section>
-            )}
-
-            <Section title={isMissing ? 'Language to insert' : 'Our proposed wording'}>
-              {editing ? (
-                <textarea
-                  className="input h-auto min-h-[150px] w-full resize-y py-2 font-mono-num text-[12px] leading-relaxed"
-                  value={draftText}
-                  onChange={(e) => setDraftText(e.target.value)}
-                  placeholder="Replacement clause text"
-                />
-              ) : (
-                <p
-                  className="whitespace-pre-wrap rounded-md p-2.5 text-[12px] leading-relaxed"
-                  style={{ background: 'var(--ins-bg)', color: 'var(--ins-fg)' }}
-                >
-                  {redline.proposed_text || 'No replacement text.'}
-                </p>
-              )}
-            </Section>
-
-            {editing && (
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className="btn-primary h-8 px-3 text-[13px]"
-                  onClick={commitEdit}
-                  disabled={saving}
-                >
-                  <Check className="h-3.5 w-3.5" />
-                  Save
-                </button>
-                <button
-                  type="button"
-                  className="btn-secondary h-8 px-3 text-[13px]"
-                  onClick={cancelEdit}
-                  disabled={saving}
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
+        {/* Positions this one edit resolves. A clause routinely fails more than
+            one, and they are fixed together because two edits to the same
+            paragraph cannot both survive into the export. */}
+        {positions.length > 0 && !editing && (
+          <div className="flex flex-wrap gap-1 px-3 pb-2.5">
+            {positions.map((type) => (
+              <span
+                key={type}
+                className="rounded-full border px-2 py-0.5 text-[10.5px] text-muted-foreground"
+              >
+                {humaniseClauseType(type)}
+              </span>
+            ))}
           </div>
         )}
-      </div>
 
-      {/* Review controls */}
-      <div
-        className="flex items-center gap-1.5 border-t bg-secondary px-3 py-2"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <StatusPill redline={redline} />
-        <div className="flex-1" />
-
-        {!editing && (
-          <>
-            {isRejected ? (
-              <IconButton
-                label="Restore this suggestion"
-                onClick={() => save({ status: 'suggested' })}
-                disabled={disabled || saving}
-              >
-                <Undo2 className="h-3.5 w-3.5" />
-                Restore
-              </IconButton>
-            ) : (
-              <>
-                <IconButton
-                  label="Keep this change in the exported redline"
-                  onClick={() => save({ status: 'accepted' })}
-                  disabled={disabled || saving}
-                  tone={redline.status === 'accepted' ? 'active' : 'default'}
-                >
-                  <Check className="h-3.5 w-3.5" />
-                  Accept
-                </IconButton>
-                <IconButton
-                  label="Leave the clause exactly as the counterparty wrote it"
-                  onClick={() => save({ status: 'rejected' })}
-                  disabled={disabled || saving}
-                >
-                  <X className="h-3.5 w-3.5" />
-                  Reject
-                </IconButton>
-              </>
+        {/* The edit */}
+        <div onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="flex w-full items-center gap-1.5 border-t px-3 py-2 text-left text-[12px] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            <ChevronDown
+              className={cn(
+                'h-3.5 w-3.5 transition-transform',
+                !expanded && '-rotate-90',
+              )}
+            />
+            {isMissing ? 'Clause to add' : 'Proposed change'}
+            {!isMissing && (redline.words_added > 0 || redline.words_removed > 0) && (
+              <span className="ml-auto font-mono-num text-[11px]">
+                <span style={{ color: 'var(--ins-fg)' }}>+{redline.words_added}</span>{' '}
+                <span style={{ color: 'var(--del-fg)' }}>−{redline.words_removed}</span>
+              </span>
             )}
-            <IconButton
-              label="Reword the proposed change"
-              onClick={() => {
-                setExpanded(true)
-                setEditing(true)
-              }}
+          </button>
+
+          {expanded && (
+            <div className="tab-panel-enter space-y-2.5 border-t bg-secondary/40 px-3 py-3">
+              {!isMissing && redline.original_text && (
+                <div>
+                  <FieldLabel>As written by the counterparty</FieldLabel>
+                  <p
+                    className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md border bg-card p-2.5 text-[12px] leading-relaxed"
+                    style={{ color: 'var(--del-fg)' }}
+                  >
+                    {redline.original_text}
+                  </p>
+                  <div className="flex justify-center py-1.5">
+                    <ArrowRight className="h-3.5 w-3.5 rotate-90 text-muted-foreground/60" />
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <FieldLabel>
+                  {isMissing ? 'Language to insert' : 'Our proposed wording'}
+                </FieldLabel>
+                {editing ? (
+                  <textarea
+                    className="input h-auto min-h-[160px] w-full resize-y py-2 text-[12px] leading-relaxed"
+                    value={draftText}
+                    onChange={(e) => setDraftText(e.target.value)}
+                    placeholder="Replacement clause text"
+                  />
+                ) : (
+                  <p
+                    className="whitespace-pre-wrap rounded-md border p-2.5 text-[12px] leading-relaxed"
+                    style={{
+                      background: 'var(--ins-bg)',
+                      color: 'var(--ins-fg)',
+                      borderColor: 'transparent',
+                    }}
+                  >
+                    {redline.proposed_text || 'No replacement text.'}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Decision */}
+        <div
+          className="flex items-center gap-1.5 border-t px-3 py-2"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {editing ? (
+            <>
+              <button
+                type="button"
+                className="btn-primary h-7 px-3 text-[12.5px]"
+                onClick={commitEdit}
+                disabled={saving}
+              >
+                <Check className="h-3.5 w-3.5" />
+                Save
+              </button>
+              <button
+                type="button"
+                className="btn-secondary h-7 px-3 text-[12.5px]"
+                onClick={cancelEdit}
+                disabled={saving}
+              >
+                Cancel
+              </button>
+            </>
+          ) : isRejected ? (
+            <Action
+              label="Restore this suggestion"
+              onClick={() => save({ status: 'suggested' })}
               disabled={disabled || saving}
             >
-              <Pencil className="h-3.5 w-3.5" />
-              Edit
-            </IconButton>
-          </>
-        )}
+              <Undo2 className="h-3.5 w-3.5" />
+              Restore
+            </Action>
+          ) : (
+            <>
+              <Action
+                label="Keep this change in the exported redline"
+                onClick={() => save({ status: 'accepted' })}
+                disabled={disabled || saving}
+                tone={redline.status === 'accepted' ? 'accepted' : 'default'}
+              >
+                <Check className="h-3.5 w-3.5" />
+                Accept
+              </Action>
+              <Action
+                label="Leave the clause exactly as the counterparty wrote it"
+                onClick={() => save({ status: 'rejected' })}
+                disabled={disabled || saving}
+              >
+                <X className="h-3.5 w-3.5" />
+                Reject
+              </Action>
+              <Action
+                label="Reword the proposed change"
+                onClick={() => {
+                  setExpanded(true)
+                  setEditing(true)
+                }}
+                disabled={disabled || saving}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Edit
+              </Action>
+            </>
+          )}
 
-        {redline.source === 'user' && onDelete && !editing && (
-          <IconButton
-            label="Delete this manually added redline"
-            onClick={() => onDelete(redline.id)}
-            disabled={disabled || saving}
-            tone="danger"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </IconButton>
-        )}
+          <div className="flex-1" />
+
+          {redline.source === 'user' && (
+            <span
+              className="rounded-full bg-accent px-2 py-0.5 text-[10.5px] font-medium text-accent-foreground"
+              title="Added by a reviewer, not by the analysis"
+            >
+              Manual
+            </span>
+          )}
+          {redline.source === 'user' && onDelete && !editing && (
+            <Action
+              label="Delete this manually added redline"
+              onClick={() => onDelete(redline.id)}
+              disabled={disabled || saving}
+              tone="danger"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Action>
+          )}
+        </div>
       </div>
     </div>
   )
 }
 
-function Section({ title, children }) {
+function FieldLabel({ children }) {
   return (
-    <div>
-      <div className="mb-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-        {title}
-      </div>
+    <div className="mb-1 text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
       {children}
     </div>
   )
 }
 
-function StatusPill({ redline }) {
-  const status = REDLINE_STATUS[redline.status] || { label: redline.status, hint: '' }
+function DecisionChip({ status }) {
+  const meta = REDLINE_STATUS[status] || { label: status, hint: '' }
+  const tone =
+    status === 'accepted'
+      ? { bg: 'var(--acceptable-bg)', fg: 'var(--acceptable-fg)' }
+      : status === 'rejected'
+      ? { bg: 'var(--muted)', fg: 'var(--muted-foreground)' }
+      : { bg: 'var(--brand-primary-light)', fg: 'var(--primary)' }
+
   return (
     <span
-      className="inline-flex items-center gap-1.5 text-[11.5px] text-muted-foreground"
-      title={status.hint}
+      className="shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[10.5px] font-medium"
+      style={{ background: tone.bg, color: tone.fg }}
+      title={meta.hint}
     >
-      {status.label}
-      {redline.source === 'user' && (
-        <span className="rounded bg-accent px-1.5 py-0.5 text-[10px] font-medium text-accent-foreground">
-          Added by reviewer
-        </span>
-      )}
-      {redline.is_manual_override && redline.source !== 'user' && (
-        <RotateCcw className="h-3 w-3" aria-label="Edited by a reviewer" />
-      )}
+      {meta.label}
     </span>
   )
 }
 
-function IconButton({ children, label, onClick, disabled, tone = 'default' }) {
+function Action({ children, label, onClick, disabled, tone = 'default' }) {
   return (
     <button
       type="button"
@@ -352,11 +384,10 @@ function IconButton({ children, label, onClick, disabled, tone = 'default' }) {
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[12px] font-medium transition-colors disabled:pointer-events-none disabled:opacity-50',
-        tone === 'active' && 'border-primary bg-accent text-accent-foreground',
-        tone === 'danger' &&
-          'border-transparent text-destructive hover:border-destructive/30 hover:bg-red-50',
-        tone === 'default' && 'bg-card text-muted-foreground hover:text-foreground',
+        'inline-flex h-7 items-center gap-1 rounded-md px-2 text-[12px] font-medium transition-colors disabled:pointer-events-none disabled:opacity-40',
+        tone === 'accepted' && 'bg-accent text-accent-foreground',
+        tone === 'danger' && 'text-destructive hover:bg-red-50',
+        tone === 'default' && 'text-muted-foreground hover:bg-secondary hover:text-foreground',
       )}
     >
       {children}

@@ -97,12 +97,14 @@ function UserForm({ initial, onSave, onClose, loading, error }) {
         </p>
       )}
 
-      <div className="flex gap-3 pt-1">
-        <button type="submit" className="btn-primary flex-1" disabled={loading}>
-          {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-          {isEdit ? 'Save Changes' : 'Create User'}
+      <div className="flex justify-end gap-2 pt-1">
+        <button type="button" className="btn-secondary" onClick={onClose} disabled={loading}>
+          Cancel
         </button>
-        <button type="button" className="btn-secondary" onClick={onClose} disabled={loading}>Cancel</button>
+        <button type="submit" className="btn-primary" disabled={loading}>
+          {loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+          {isEdit ? 'Save changes' : 'Create user'}
+        </button>
       </div>
     </form>
   )
@@ -164,12 +166,14 @@ function ChangePasswordForm({ userId, onClose }) {
           {error}
         </p>
       )}
-      <div className="flex gap-3 pt-1">
-        <button type="submit" className="btn-primary flex-1" disabled={loading}>
-          {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
-          Update Password
+      <div className="flex justify-end gap-2 pt-1">
+        <button type="button" className="btn-secondary" onClick={onClose} disabled={loading}>
+          Cancel
         </button>
-        <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
+        <button type="submit" className="btn-primary" disabled={loading}>
+          {loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+          Update password
+        </button>
       </div>
     </form>
   )

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Filter, Plus } from 'lucide-react'
+import { Filter } from 'lucide-react'
 import RedlineCard from './RedlineCard'
 import {
   CLASSIFICATIONS,
@@ -27,8 +27,6 @@ export default function RedlineList({
   onSelect,
   onUpdate,
   onDelete,
-  onAdd,
-  pendingSelection,
   disabled = false,
 }) {
   const [filter, setFilter] = useState(null)
@@ -53,8 +51,8 @@ export default function RedlineList({
   return (
     <div className="flex h-full flex-col">
       {/* Summary chips double as filters */}
-      <div className="shrink-0 space-y-2.5 border-b bg-card px-4 py-3">
-        <div className="flex flex-wrap gap-2">
+      <div className="shrink-0 border-b bg-card px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2">
           {CLASSIFICATIONS.map((key) => {
             const meta = metaFor(key)
             const active = filter === key
@@ -81,28 +79,11 @@ export default function RedlineList({
               </button>
             )
           })}
-        </div>
 
-        <div className="flex items-center gap-3">
-          {onAdd && (
-            <button
-              type="button"
-              onClick={onAdd}
-              disabled={disabled}
-              className="btn-secondary h-8 px-3 text-[13px]"
-              title={
-                pendingSelection
-                  ? 'Add a redline on the text you selected'
-                  : 'Select text in the document first, or add an unanchored point'
-              }
-            >
-              <Plus className="h-3.5 w-3.5" />
-              {pendingSelection ? 'Redline selected text' : 'Add redline'}
-            </button>
-          )}
           <div className="flex-1" />
+
           {rejectedCount > 0 && (
-            <label className="flex cursor-pointer select-none items-center gap-1.5 text-[12px] text-muted-foreground">
+            <label className="flex cursor-pointer select-none items-center gap-1.5 whitespace-nowrap text-[12px] text-muted-foreground">
               <input
                 type="checkbox"
                 checked={hideRejected}
@@ -116,7 +97,7 @@ export default function RedlineList({
             <button
               type="button"
               onClick={() => setFilter(null)}
-              className="flex items-center gap-1 text-[12px] text-primary hover:underline"
+              className="flex items-center gap-1 whitespace-nowrap text-[12px] text-primary hover:underline"
             >
               <Filter className="h-3 w-3" />
               Clear filter

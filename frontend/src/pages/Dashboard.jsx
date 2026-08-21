@@ -1,22 +1,37 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   BookOpen, FileSignature, ShieldAlert, Activity,
   RefreshCw, ChevronRight, TrendingDown, ListChecks,
 } from 'lucide-react'
+import {
+  Area, AreaChart, Cell, Pie, PieChart, ResponsiveContainer,
+  Tooltip, XAxis, YAxis, CartesianGrid,
+} from 'recharts'
 import StatusBadge from '../components/StatusBadge'
 import PageLayout from '../components/PageLayout'
 import { getStats } from '../services/api'
 import { CLASSIFICATIONS, metaFor } from '../lib/classifications'
 import { cn } from '../lib/utils'
 
-// The donut needs literal colours (conic-gradient cannot read a token through
-// a JS string), so it mirrors the token values rather than replacing them.
-const DONUT_COLORS = {
-  UNACCEPTABLE: '#ef4444',
-  MISSING: '#8b5cf6',
-  NEGOTIABLE: '#f97316',
-  ACCEPTABLE: '#22c55e',
+// Recharts renders into SVG attributes, which cannot read a CSS custom
+// property through a JS string — so the chart palette mirrors the token values
+// rather than replacing them. Keep in step with index.css.
+const CLASSIFICATION_COLORS = {
+  UNACCEPTABLE: { from: '#f05252', to: '#dc2626' },
+  MISSING: { from: '#a78bfa', to: '#7c3aed' },
+  NEGOTIABLE: { from: '#fb923c', to: '#ea580c' },
+  ACCEPTABLE: { from: '#4ade80', to: '#16a34a' },
+}
+
+const RANGE_DAYS = { '7d': 7, '14d': 14, '30d': 30 }
+
+const TOOLTIP_STYLE = {
+  background: '#ffffff',
+  border: '1px solid #e2e8f0',
+  borderRadius: 8,
+  fontSize: 12,
+  boxShadow: '0 4px 16px rgba(14,21,32,0.08)',
 }
 
 function Card({ children, className }) {
@@ -56,43 +71,10 @@ function KpiCard({ icon: Icon, iconBg, iconColor, label, value, sub }) {
   )
 }
 
-function DonutChart({ segments, total }) {
-  if (total === 0) {
-    return (
-      <div className="relative flex h-36 w-36 items-center justify-center">
-        <div className="h-36 w-36 rounded-full bg-muted" />
-        <div className="absolute flex h-20 w-20 flex-col items-center justify-center rounded-full bg-card">
-          <span className="text-xl font-semibold text-muted-foreground">0</span>
-          <span className="text-xs text-muted-foreground">Total</span>
-        </div>
-      </div>
-    )
-  }
-
-  let cumulativePct = 0
-  const stops = segments
-    .map(({ color, value }) => {
-      const pct = (value / total) * 100
-      const start = cumulativePct
-      cumulativePct += pct
-      return `${color} ${start.toFixed(1)}% ${cumulativePct.toFixed(1)}%`
-    })
-    .join(', ')
-
-  return (
-    <div className="relative flex h-36 w-36 flex-shrink-0 items-center justify-center">
-      <div className="h-36 w-36 rounded-full" style={{ background: `conic-gradient(${stops})` }} />
-      <div className="absolute flex h-[84px] w-[84px] flex-col items-center justify-center rounded-full bg-card shadow-sm">
-        <span className="text-2xl font-semibold tracking-tight text-foreground">{total}</span>
-        <span className="text-xs text-muted-foreground">Total</span>
-      </div>
-    </div>
-  )
-}
-
 export default function Dashboard() {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [range, setRange] = useState('30d')
   const navigate = useNavigate()
 
   const refresh = () => getStats().then(setStats).catch(() => {})
@@ -107,15 +89,23 @@ export default function Dashboard() {
   const totalFindings = Object.values(cls).reduce((a, b) => a + b, 0)
   const highRisk = (cls.UNACCEPTABLE ?? 0) + (cls.MISSING ?? 0)
 
-  const donutSegments = CLASSIFICATIONS.map((key) => ({
-    key,
-    color: DONUT_COLORS[key],
-    value: cls[key] ?? 0,
-    label: metaFor(key).label,
-  }))
+  const pieData = useMemo(
+    () =>
+      CLASSIFICATIONS.map((key) => ({
+        key,
+        name: metaFor(key).label,
+        value: cls[key] ?? 0,
+      })).filter((d) => d.value > 0),
+    [cls],
+  )
 
-  // How much of the AI's work reviewers actually keep — the most honest signal
-  // of whether the playbook matches how this team really negotiates.
+  // The backend always returns 30 days; the range buttons slice the tail so
+  // switching ranges costs no round trip.
+  const series = useMemo(() => {
+    const all = stats?.activity_series ?? []
+    return all.slice(-RANGE_DAYS[range])
+  }, [stats, range])
+
   const rs = stats?.redline_status ?? {}
   const decided = (rs.accepted ?? 0) + (rs.rejected ?? 0) + (rs.modified ?? 0)
   const keepRate = decided > 0
@@ -177,48 +167,186 @@ export default function Dashboard() {
         />
       </div>
 
+      {/* Charts row */}
       <div className="stagger-children mb-4 grid grid-cols-1 gap-3.5 lg:grid-cols-5">
+        {/* Review activity over time */}
+        <Card className="lg:col-span-3">
+          <div className="flex items-start justify-between px-5 pt-4">
+            <div>
+              <div className="card-title">Review Activity</div>
+              <div className="card-subtitle">
+                Findings raised over the last {RANGE_DAYS[range]} days
+              </div>
+            </div>
+            <div className="flex items-center gap-1 rounded-md border bg-secondary p-0.5">
+              {Object.keys(RANGE_DAYS).map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setRange(key)}
+                  className={cn(
+                    'rounded px-2 py-0.5 text-[11.5px] font-medium transition-colors',
+                    range === key
+                      ? 'bg-card text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {key}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="h-[288px] px-2 pb-3 pt-4">
+            {!series.some((d) => d.findings > 0) ? (
+              <EmptyChart label="No findings in this period" />
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={series} margin={{ top: 8, right: 14, bottom: 0, left: 0 }}>
+                  <defs>
+                    <linearGradient id="findingsFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#016ac9" stopOpacity={0.3} />
+                      <stop offset="100%" stopColor="#016ac9" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="riskFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#ef4444" stopOpacity={0.26} />
+                      <stop offset="100%" stopColor="#ef4444" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    stroke="#94a3b8"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    interval="preserveStartEnd"
+                    minTickGap={24}
+                  />
+                  <YAxis
+                    stroke="#94a3b8"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    allowDecimals={false}
+                    width={30}
+                  />
+                  <Tooltip
+                    cursor={{ stroke: '#016ac9', strokeWidth: 1, strokeOpacity: 0.3 }}
+                    contentStyle={TOOLTIP_STYLE}
+                    labelStyle={{ color: '#64748b', fontWeight: 500 }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="findings"
+                    name="All findings"
+                    stroke="#016ac9"
+                    strokeWidth={2}
+                    fill="url(#findingsFill)"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="high_risk"
+                    name="High risk"
+                    stroke="#ef4444"
+                    strokeWidth={2}
+                    fill="url(#riskFill)"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </Card>
+
+        {/* Risk profile donut */}
         <Card className="lg:col-span-2">
           <div className="px-5 pt-4">
             <div className="card-title">Risk Profile</div>
             <div className="card-subtitle">All findings across reviewed contracts</div>
           </div>
-
-          <div className="p-5 pt-4">
-            {totalFindings === 0 ? (
-              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-                <TrendingDown className="mb-2 h-10 w-10 opacity-40" />
-                <p className="text-[13px]">No findings yet</p>
-              </div>
-            ) : (
-              <div className="flex items-center gap-6">
-                <DonutChart segments={donutSegments} total={totalFindings} />
-                <div className="min-w-0 flex-1 space-y-3">
-                  {donutSegments.map(({ key, label, value, color }) => (
+          <div className="flex items-center gap-3 px-3 pb-4 pt-2">
+            <div className="relative h-[180px] w-[180px] flex-shrink-0">
+              {pieData.length === 0 ? (
+                <div className="flex h-full w-full items-center justify-center rounded-full border-2 border-dashed border-border text-xs text-muted-foreground">
+                  No data
+                </div>
+              ) : (
+                <>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <defs>
+                        {Object.entries(CLASSIFICATION_COLORS).map(([key, g]) => (
+                          <linearGradient key={key} id={`grad-${key}`} x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor={g.from} />
+                            <stop offset="100%" stopColor={g.to} />
+                          </linearGradient>
+                        ))}
+                      </defs>
+                      <Pie
+                        data={pieData}
+                        innerRadius={55}
+                        outerRadius={80}
+                        paddingAngle={2}
+                        dataKey="value"
+                        stroke="#ffffff"
+                        strokeWidth={2}
+                        isAnimationActive={false}
+                      >
+                        {pieData.map((entry) => (
+                          <Cell key={entry.key} fill={`url(#grad-${entry.key})`} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={TOOLTIP_STYLE} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                    <div className="text-[22px] font-semibold leading-none text-foreground">
+                      {totalFindings}
+                    </div>
+                    <div className="mt-1 text-[10.5px] uppercase tracking-wider text-muted-foreground">
+                      findings
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
+              {pieData.length === 0 ? (
+                <span className="text-xs text-muted-foreground">
+                  Review a contract to see the breakdown
+                </span>
+              ) : (
+                CLASSIFICATIONS.map((key) => {
+                  const value = cls[key] ?? 0
+                  return (
                     <div key={key} className="flex items-center justify-between gap-2">
                       <div className="flex min-w-0 items-center gap-2">
                         <span
                           className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
-                          style={{ background: color }}
+                          style={{ background: CLASSIFICATION_COLORS[key].to }}
                         />
-                        <span className="truncate text-[12.5px] text-muted-foreground">{label}</span>
+                        <span className="truncate text-[12px] text-muted-foreground">
+                          {metaFor(key).short}
+                        </span>
                       </div>
                       <div className="flex flex-shrink-0 items-center gap-2">
-                        <span className="font-mono-num text-[14px] tabular-nums text-foreground/85">
+                        <span className="font-mono-num text-[13px] tabular-nums text-foreground/85">
                           {value}
                         </span>
-                        <span className="w-8 text-right text-xs text-muted-foreground/75">
-                          {Math.round((value / totalFindings) * 100)}%
+                        <span className="w-8 text-right text-[11px] text-muted-foreground/75">
+                          {totalFindings ? `${Math.round((value / totalFindings) * 100)}%` : '0%'}
                         </span>
                       </div>
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
+                  )
+                })
+              )}
+            </div>
           </div>
         </Card>
+      </div>
 
+      {/* Recent + activity */}
+      <div className="stagger-children grid grid-cols-1 gap-3.5 lg:grid-cols-5">
         <Card className="lg:col-span-3">
           <div className="flex items-start justify-between px-5 pt-4">
             <div>
@@ -278,20 +406,19 @@ export default function Dashboard() {
             )}
           </div>
         </Card>
-      </div>
 
-      <div className="stagger-children grid grid-cols-1 gap-3.5 sm:grid-cols-3">
-        <Card>
+        <Card className="lg:col-span-2">
           <div className="px-5 pt-4">
-            <div className="card-title">Review Activity</div>
-            <div className="card-subtitle">How reviewers are handling suggestions</div>
+            <div className="card-title">Reviewer Decisions</div>
+            <div className="card-subtitle">How suggestions are being handled</div>
           </div>
           <div className="p-5 pt-3">
             {[
               {
                 label: 'Suggestions kept',
                 value: keepRate == null ? '—' : `${keepRate}%`,
-                title: 'Accepted or edited, as a share of everything reviewers decided on. A low rate means the playbook needs tuning.',
+                title:
+                  'Accepted or edited, as a share of everything reviewers decided on. A low rate means the playbook needs tuning.',
               },
               { label: 'Awaiting review', value: rs.suggested ?? 0 },
               { label: 'Rejected', value: rs.rejected ?? 0 },
@@ -308,44 +435,34 @@ export default function Dashboard() {
                 </span>
               </div>
             ))}
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={() => navigate('/reviews')}
+                className="btn-primary h-8 flex-1 px-3 text-[12.5px]"
+              >
+                <FileSignature className="h-3.5 w-3.5" />
+                Review a contract
+              </button>
+              <button
+                onClick={() => navigate('/playbook')}
+                className="btn-secondary h-8 flex-1 px-3 text-[12.5px]"
+              >
+                <ListChecks className="h-3.5 w-3.5" />
+                Playbook
+              </button>
+            </div>
           </div>
         </Card>
-
-        {[
-          {
-            label: 'Review a Contract',
-            desc: 'Upload vendor paper and redline it',
-            icon: FileSignature,
-            path: '/reviews',
-            bg: '#e8f2fc',
-            color: '#016ac9',
-          },
-          {
-            label: 'Tune the Playbook',
-            desc: 'Edit the positions reviews are judged against',
-            icon: ListChecks,
-            path: '/playbook',
-            bg: '#f5f3ff',
-            color: '#6d28d9',
-          },
-        ].map((a) => (
-          <Card key={a.path}>
-            <button onClick={() => navigate(a.path)} className="w-full p-4 text-left">
-              <div
-                className="mb-4 flex h-9 w-9 items-center justify-center rounded-[10px]"
-                style={{ background: a.bg, color: a.color }}
-              >
-                <a.icon className="h-[18px] w-[18px]" />
-              </div>
-              <p className="text-[13.5px] font-semibold text-foreground">{a.label}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{a.desc}</p>
-              <div className="mt-3 flex items-center gap-1 text-xs font-medium text-primary">
-                Get started <ChevronRight className="h-3 w-3" />
-              </div>
-            </button>
-          </Card>
-        ))}
       </div>
     </PageLayout>
+  )
+}
+
+function EmptyChart({ label }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center text-muted-foreground">
+      <TrendingDown className="mb-2 h-10 w-10 opacity-40" />
+      <p className="text-[13px]">{label}</p>
+    </div>
   )
 }

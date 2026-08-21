@@ -93,10 +93,24 @@ export default function ContractViewer({
     }
   }
 
+  // Consecutive table rows render as one real table rather than as separate
+  // pipe-joined lines. Order forms and fee schedules carry negotiable terms, so
+  // they have to stay readable as tables.
+  //
+  // Must stay ABOVE the empty-document guard below: an early return that skips
+  // a hook changes the hook count between renders, and React tears down the
+  // whole tree when that happens. This component renders with no blocks while
+  // extraction is still running, then with blocks once it finishes - exactly
+  // the transition that would trip it.
+  const groups = useMemo(() => groupRows(visible, supersededBlocks), [
+    visible,
+    supersededBlocks,
+  ])
+
   if (!blocks.length) {
     return (
       <div className="flex h-full items-center justify-center p-8 text-center text-[13px] text-muted-foreground">
-        The document has not been extracted yet.
+        The document is still being extracted.
       </div>
     )
   }
@@ -104,8 +118,22 @@ export default function ContractViewer({
   return (
     <div ref={scrollRef} className="h-full overflow-y-auto" onMouseUp={handleMouseUp}>
       <div className="doc-sheet">
-        {visible.map((block) => {
-          if (supersededBlocks.has(block.index)) return null
+        {groups.map((group) => {
+          if (group.type === 'table') {
+            return (
+              <DocTable
+                key={`tbl-${group.rows[0].index}`}
+                rows={group.rows}
+                blockRefs={blockRefs}
+                editsByBlock={editsByBlock}
+                activeRedlineId={activeRedlineId}
+                onSelectRedline={onSelectRedline}
+                mode={mode}
+              />
+            )
+          }
+
+          const block = group.block
           const redline = editsByBlock.get(block.index)
           const isActive = redline && redline.id === activeRedlineId
 
@@ -129,6 +157,91 @@ export default function ContractViewer({
           )
         })}
       </div>
+    </div>
+  )
+}
+
+/** Split the visible blocks into paragraph items and runs of table rows. */
+function groupRows(visible, supersededBlocks) {
+  const groups = []
+  let table = null
+
+  for (const block of visible) {
+    if (supersededBlocks.has(block.index)) continue
+
+    if (block.kind === 'row') {
+      if (!table) {
+        table = { type: 'table', rows: [] }
+        groups.push(table)
+      }
+      table.rows.push(block)
+      continue
+    }
+
+    table = null
+    groups.push({ type: 'block', block })
+  }
+
+  return groups
+}
+
+function DocTable({
+  rows,
+  blockRefs,
+  editsByBlock,
+  activeRedlineId,
+  onSelectRedline,
+  mode,
+}) {
+  const columnCount = Math.max(...rows.map((r) => (r.cells || [r.text]).length))
+
+  return (
+    <div className="doc-table-wrap">
+      <table className="doc-table">
+        <tbody>
+          {rows.map((row) => {
+            const cells = row.cells || [row.text]
+            const redline = editsByBlock.get(row.index)
+            const isActive = redline && redline.id === activeRedlineId
+            const Cell = row.is_header ? 'th' : 'td'
+            // An edit rewrites the row as a whole, so the marked-up text spans
+            // the full width rather than being repeated in every cell.
+            const edited =
+              redline && mode !== 'original' && redline.status !== 'rejected'
+
+            return (
+              <tr
+                key={row.index}
+                ref={(node) => {
+                  blockRefs.current[row.index] = node
+                }}
+                className={cn(
+                  redline && 'doc-block-flagged',
+                  isActive && 'doc-block-active',
+                )}
+                onClick={() => redline && onSelectRedline?.(redline.id)}
+              >
+                {edited ? (
+                  <Cell colSpan={columnCount}>
+                    <BlockBody block={row} redline={redline} mode={mode} />
+                  </Cell>
+                ) : (
+                  cells.map((cell, i) => (
+                    <Cell
+                      key={i}
+                      colSpan={
+                        i === cells.length - 1 ? columnCount - cells.length + 1 : 1
+                      }
+                    >
+                      {cell}
+                    </Cell>
+                  ))
+                )}
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
     </div>
   )
 }
