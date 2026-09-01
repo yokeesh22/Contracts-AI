@@ -41,7 +41,11 @@ COMMENTS_REL = (
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments"
 )
 
-EXPORTABLE = ("suggested", "accepted", "modified")
+# Only decisions a human actually made reach the counterparty. A "suggested"
+# redline is one nobody has looked at yet, and putting those in the file means
+# sending the vendor edits your own team has not agreed to - the export has to
+# reflect the review, not the analysis that preceded it.
+EXPORTABLE = ("accepted", "modified")
 
 
 def _now() -> str:
@@ -184,6 +188,15 @@ def _exportable(redlines) -> list:
             continue
         out.append(r)
     return out
+
+
+def exportable_redlines(redlines) -> list:
+    """The redlines that will actually be written into the file.
+
+    Public so callers can report the count before a download rather than letting
+    someone discover their export was empty by opening it in Word.
+    """
+    return _exportable(redlines)
 
 
 def _body_paragraphs(body: ET.Element) -> dict[int, ET.Element]:

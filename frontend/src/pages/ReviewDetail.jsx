@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useParams, useSearchParams, Link } from 'react-router-dom'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -9,7 +9,6 @@ import {
   ListChecks,
   Loader2,
   Plus,
-  RefreshCw,
   Send,
   Undo2,
   Upload,
@@ -49,12 +48,15 @@ const RUNNING = ['queued', 'pending', 'extracting', 'analyzing']
 
 export default function ReviewDetail() {
   const { id } = useParams()
+  // ?version= lets the reviews list deep-link straight into a specific round.
+  const [searchParams, setSearchParams] = useSearchParams()
   const [review, setReview] = useState(null)
   const [error, setError] = useState(null)
   const [mode, setMode] = useState('redlined')
   const [section, setSection] = useState(null)
   const [activeId, setActiveId] = useState(null)
   const [exporting, setExporting] = useState(null)
+  const [exportError, setExportError] = useState(null)
   const [selection, setSelection] = useState(null)
   const [addOpen, setAddOpen] = useState(false)
   const [roundOpen, setRoundOpen] = useState(false)
@@ -62,7 +64,10 @@ export default function ReviewDetail() {
   const [busy, setBusy] = useState(false)
   // null means "whatever the latest round is", so a finishing round pulls the
   // view forward on its own instead of stranding the reviewer on the old one.
-  const [versionId, setVersionId] = useState(null)
+  const [versionId, setVersionId] = useState(() => {
+    const raw = searchParams.get('version')
+    return raw ? Number(raw) : null
+  })
   const pollRef = useRef(null)
 
   const load = useCallback(async () => {
@@ -117,7 +122,9 @@ export default function ReviewDetail() {
 
   const selectRound = (nextId) => {
     const latestId = versions[versions.length - 1]?.id
-    setVersionId(nextId === latestId ? null : nextId)
+    const next = nextId === latestId ? null : nextId
+    setVersionId(next)
+    setSearchParams(next ? { version: String(next) } : {}, { replace: true })
     setActiveId(null)
     setSection(null)
   }
@@ -150,23 +157,20 @@ export default function ReviewDetail() {
     setActiveId(created.id)
   }
 
+  // Downloading never interrupts. A failure is reported inline in the header
+  // rather than in a dialog, so the one case that genuinely needs saying is
+  // still said without a click standing between the user and their file.
   const handleExport = async (kind) => {
     setExporting(kind)
+    setExportError(null)
     try {
       if (kind === 'redline') {
-        const faithful = await exportRedline(id, version?.id)
-        if (!faithful) {
-          window.alert(
-            'This contract was uploaded as a PDF, so the redline was rebuilt from ' +
-              'extracted text. The tracked changes are complete, but the original ' +
-              'formatting is not preserved.',
-          )
-        }
+        await exportRedline(id, version?.id)
       } else {
         await exportIssues(id, version?.id)
       }
     } catch (e) {
-      window.alert(e?.response?.data?.detail || 'Export failed.')
+      setExportError(e?.response?.data?.detail || 'Export failed.')
     } finally {
       setExporting(null)
     }
@@ -192,11 +196,6 @@ export default function ReviewDetail() {
     setSection(null)
     await load()
   }
-
-  const progress = useMemo(() => {
-    if (!version?.total_clauses) return 0
-    return Math.round((version.analyzed_count / version.total_clauses) * 100)
-  }, [version])
 
   if (error) {
     return (
@@ -248,6 +247,11 @@ export default function ReviewDetail() {
         </div>
         <StatusBadge status={review.status} />
         <div className="flex-1" />
+        {exportError && (
+          <span className="max-w-[280px] truncate text-[12px] text-destructive" title={exportError}>
+            {exportError}
+          </span>
+        )}
         <button
           type="button"
           className="btn-secondary h-8 px-3 text-[13px]"
@@ -417,28 +421,6 @@ export default function ReviewDetail() {
             </span>
           </div>
 
-          {isRunning && (
-            <div className="shrink-0 border-b bg-card px-4 py-2.5">
-              <div
-                className="flex items-center gap-2 rounded-md border px-3 py-2 text-[13px]"
-                style={{ background: '#eff6ff', color: '#1d4ed8', borderColor: '#bfdbfe' }}
-              >
-                <RefreshCw className="h-4 w-4 shrink-0 animate-spin" />
-                {version.round_number > 1
-                  ? 'Comparing the counterparty’s response against what we sent.'
-                  : 'Reviewing the contract — findings appear as each clause is assessed.'}
-              </div>
-              {version.total_clauses > 0 && (
-                <div className="mt-2 h-1.5 w-full rounded-full bg-muted">
-                  <div
-                    className="h-1.5 rounded-full bg-primary transition-all"
-                    style={{ width: `${progress}%` }}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-
           {/* A returned file with no revision marks can still be reconciled, but
               only by comparing text — worth saying so rather than letting the
               results look more precise than they are. */}
@@ -477,6 +459,7 @@ export default function ReviewDetail() {
               onDelete={handleDelete}
               disabled={!roundDone}
               readOnly={readOnly}
+              isRunning={isRunning}
             />
             </ErrorBoundary>
           </div>

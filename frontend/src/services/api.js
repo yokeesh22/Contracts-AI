@@ -127,7 +127,14 @@ function downloadBlob(response, fallbackName) {
   window.URL.revokeObjectURL(url)
 }
 
-/** The marked-up contract as a Word file with tracked changes. */
+/**
+ * The marked-up contract as a Word file with tracked changes.
+ *
+ * Returns how many edits were actually written. Only accepted and reworded
+ * redlines go to the counterparty, so this is normally fewer than the findings
+ * on screen — and zero if nobody has worked the list yet, which is worth saying
+ * out loud rather than letting someone email an unmarked contract.
+ */
 export const exportRedline = (reviewId, versionId) =>
   api
     .get(`/reviews/${reviewId}/export/redline`, {
@@ -136,8 +143,10 @@ export const exportRedline = (reviewId, versionId) =>
     })
     .then((r) => {
       downloadBlob(r, `Redline_${reviewId}.docx`)
-      // "false" for PDF sources, where formatting could not be preserved.
-      return r.headers['x-export-faithful'] !== 'false'
+      return {
+        faithful: r.headers['x-export-faithful'] !== 'false',
+        edits: Number(r.headers['x-export-edits'] ?? 0),
+      }
     })
 
 /** The issues list — the tabular summary for circulation. */

@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Clock, FileSignature, Loader2, Plus, Trash2 } from 'lucide-react'
+import {
+  CheckCircle2,
+  ChevronDown,
+  Clock,
+  FileSignature,
+  Loader2,
+  Plus,
+  Trash2,
+} from 'lucide-react'
 import PageLayout from '../components/PageLayout'
 import DataTable from '../components/DataTable'
 import Dialog from '../components/Dialog'
@@ -13,6 +21,7 @@ import {
   getReviews,
 } from '../services/api'
 import { waitingLabel } from '../lib/classifications'
+import { cn } from '../lib/utils'
 
 // A negotiation is "moving" while its current round is still being processed;
 // that is the only time the list needs to refresh itself.
@@ -24,6 +33,9 @@ export default function ContractReviews() {
   const [playbooks, setPlaybooks] = useState([])
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
+  // Which negotiations are showing their rounds. Collapsed by default: the row
+  // is about where the deal stands, and the history is only wanted on demand.
+  const [expanded, setExpanded] = useState(() => new Set())
 
   const load = async () => {
     const [r, p] = await Promise.all([getReviews(), getPlaybooks()])
@@ -47,6 +59,15 @@ export default function ContractReviews() {
     const timer = setInterval(load, 3000)
     return () => clearInterval(timer)
   }, [anyRunning])
+
+  const toggleRounds = (e, id) => {
+    e.stopPropagation()
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
 
   const handleDelete = async (e, id) => {
     e.stopPropagation()
@@ -86,21 +107,42 @@ export default function ContractReviews() {
       render: (row) => <StatusBadge status={row.status} />,
     },
     {
+      // Doubles as the expander. The current round is what matters at a glance;
+      // the rest of the exchange is one click away rather than another page.
       key: 'round',
       header: 'Round',
-      className: 'w-20',
-      render: (row) => (
-        <span
-          className="font-mono-num text-[13px] text-foreground"
-          title={
-            row.total_rounds > 1
-              ? `${row.total_rounds} versions exchanged so far`
-              : 'The counterparty’s opening paper'
-          }
-        >
-          R{row.current_round}
-        </span>
-      ),
+      className: 'w-24',
+      render: (row) => {
+        const rounds = row.rounds?.length ?? row.total_rounds ?? 1
+        const isOpen = expanded.has(row.id)
+        return (
+          <button
+            type="button"
+            onClick={(e) => toggleRounds(e, row.id)}
+            disabled={rounds < 2}
+            title={
+              rounds > 1
+                ? `${rounds} versions exchanged — click to see them`
+                : 'The counterparty’s opening paper'
+            }
+            className={cn(
+              'inline-flex items-center gap-1 rounded-md px-1.5 py-1 font-mono-num text-[13px] text-foreground transition-colors',
+              rounds > 1 && 'hover:bg-muted',
+              rounds < 2 && 'cursor-default',
+            )}
+          >
+            R{row.current_round}
+            {rounds > 1 && (
+              <ChevronDown
+                className={cn(
+                  'h-3.5 w-3.5 text-muted-foreground transition-transform',
+                  !isOpen && '-rotate-90',
+                )}
+              />
+            )}
+          </button>
+        )
+      },
     },
     {
       // The number that says whether the deal is nearly done. Findings counted
@@ -193,6 +235,21 @@ export default function ContractReviews() {
           columns={columns}
           data={reviews}
           onRowClick={(row) => navigate(`/reviews/${row.id}`)}
+          renderExpanded={(row) =>
+            expanded.has(row.id) && row.rounds?.length > 1 ? (
+              <tr key={`${row.id}-rounds`} className="border-b bg-secondary/40">
+                <td colSpan={columns.length} className="px-4 py-2">
+                  <RoundList
+                    rounds={row.rounds}
+                    currentRound={row.current_round}
+                    onOpen={(versionId) =>
+                      navigate(`/reviews/${row.id}?version=${versionId}`)
+                    }
+                  />
+                </td>
+              </tr>
+            ) : null
+          }
           emptyMessage="No contracts reviewed yet. Upload one to get started."
         />
       )}
@@ -207,6 +264,76 @@ export default function ContractReviews() {
         }}
       />
     </PageLayout>
+  )
+}
+
+/**
+ * The rounds of one negotiation, newest first, each opening straight into that
+ * version of the contract.
+ *
+ * Newest first because that is the one anybody wants; the older ones read as
+ * what they are, a record of what was on the table at the time.
+ */
+function RoundList({ rounds, currentRound, onOpen }) {
+  return (
+    <ol className="space-y-1">
+      {[...rounds].reverse().map((round) => {
+        const isCurrent = round.round_number === currentRound
+        return (
+          <li key={round.id}>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                onOpen(round.id)
+              }}
+              className="flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-card"
+            >
+              <span
+                className={cn(
+                  'flex h-5 w-5 shrink-0 items-center justify-center rounded-full font-mono-num text-[10.5px] font-semibold',
+                  isCurrent ? 'bg-primary text-white' : 'bg-muted text-muted-foreground',
+                )}
+              >
+                {round.round_number}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[12.5px] font-medium text-foreground">
+                  {round.round_number === 1 ? 'Opening paper' : 'Vendor response'}
+                  <span className="ml-2 font-normal text-muted-foreground">
+                    {round.file_name}
+                  </span>
+                </span>
+                <span className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                  {new Date(round.created_at).toLocaleDateString('en-GB', {
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric',
+                  })}
+                  <span className="font-mono-num">· {round.total_clauses} findings</span>
+                  {round.has_tracked_changes && (
+                    <span title="Came back with the counterparty's tracked changes">
+                      · their markup
+                    </span>
+                  )}
+                  {round.sent_at && (
+                    <span className="inline-flex items-center gap-1">
+                      <CheckCircle2 className="h-2.5 w-2.5" />
+                      sent{' '}
+                      {new Date(round.sent_at).toLocaleDateString('en-GB', {
+                        day: '2-digit',
+                        month: 'short',
+                      })}
+                    </span>
+                  )}
+                </span>
+              </span>
+              {round.status !== 'completed' && <StatusBadge status={round.status} />}
+            </button>
+          </li>
+        )
+      })}
+    </ol>
   )
 }
 

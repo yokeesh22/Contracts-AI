@@ -1,10 +1,9 @@
 import { useMemo, useState } from 'react'
-import { Filter } from 'lucide-react'
+import { Filter, Loader2 } from 'lucide-react'
 import RedlineCard from './RedlineCard'
 import {
   CLASSIFICATIONS,
   countByClassification,
-  isSettled,
   metaFor,
   VENDOR_ACTION,
 } from '../lib/classifications'
@@ -50,10 +49,10 @@ export default function RedlineList({
   onDelete,
   disabled = false,
   readOnly = false,
+  isRunning = false,
 }) {
   const [filter, setFilter] = useState(null)
   const [response, setResponse] = useState(null)
-  const [hideRejected, setHideRejected] = useState(false)
 
   const counts = useMemo(() => countByClassification(redlines), [redlines])
   const isRound = redlines.some((r) => r.vendor_action || r.is_vendor_introduced)
@@ -73,22 +72,13 @@ export default function RedlineList({
       const active = RESPONSE_FILTERS.find((f) => f.key === response)
       if (active) list = list.filter(active.test)
     }
-    // "Settled" covers both a rejected suggestion and a point closed out in an
-    // earlier round; neither needs to sit at the top of a working list.
-    if (hideRejected) {
-      list = list.filter((r) => r.status !== 'rejected' && !isSettled(r.issue_status))
-    }
     return list.sort(
       (a, b) =>
         (SEVERITY_ORDER[a.classification] ?? 9) -
           (SEVERITY_ORDER[b.classification] ?? 9) ||
         a.sort_order - b.sort_order,
     )
-  }, [redlines, filter, response, hideRejected])
-
-  const settledCount = redlines.filter(
-    (r) => r.status === 'rejected' || isSettled(r.issue_status),
-  ).length
+  }, [redlines, filter, response])
 
   return (
     <div className="flex h-full flex-col">
@@ -124,17 +114,6 @@ export default function RedlineList({
 
           <div className="flex-1" />
 
-          {settledCount > 0 && (
-            <label className="flex cursor-pointer select-none items-center gap-1.5 whitespace-nowrap text-[12px] text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={hideRejected}
-                onChange={(e) => setHideRejected(e.target.checked)}
-                className="h-3.5 w-3.5 accent-[var(--primary)]"
-              />
-              Hide settled ({settledCount})
-            </label>
-          )}
           {(filter || response) && (
             <button
               type="button"
@@ -199,13 +178,21 @@ export default function RedlineList({
           />
         ))}
 
-        {!visible.length && (
-          <div className="px-4 py-12 text-center text-[13px] text-muted-foreground">
-            {redlines.length
-              ? 'No findings match the current filter.'
-              : 'No findings yet.'}
-          </div>
-        )}
+        {!visible.length &&
+          // While the round is still being analysed there is nothing to say yet,
+          // so the spinner stands in for the empty state. It goes as soon as the
+          // first finding lands, because a card is better news than a message.
+          (isRunning && !redlines.length ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="px-4 py-12 text-center text-[13px] text-muted-foreground">
+              {redlines.length
+                ? 'No findings match the current filter.'
+                : 'No findings yet.'}
+            </div>
+          ))}
       </div>
     </div>
   )

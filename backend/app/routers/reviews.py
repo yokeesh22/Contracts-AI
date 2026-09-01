@@ -54,7 +54,7 @@ from ..services.redline_engine import (
     group_hits,
     locate_clauses,
 )
-from ..services.redline_export import export_redline_docx
+from ..services.redline_export import export_redline_docx, exportable_redlines
 from ..services.summary_export import generate_issues_list_docx
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
@@ -850,6 +850,22 @@ def _latest_version(review: ContractReview) -> ContractVersion | None:
     return max(review.versions, key=lambda v: v.round_number)
 
 
+def _round_summary(version: ContractVersion) -> dict:
+    """Just enough about a round for the list page to expand it inline."""
+    return {
+        "id": version.id,
+        "round_number": version.round_number,
+        "direction": version.direction,
+        "file_name": version.file_name,
+        "doc_kind": version.doc_kind,
+        "status": version.status,
+        "has_tracked_changes": version.has_tracked_changes,
+        "total_clauses": version.total_clauses,
+        "sent_at": version.sent_at,
+        "created_at": version.created_at,
+    }
+
+
 def _review_summary(review: ContractReview) -> dict:
     latest = _latest_version(review)
     open_issues = sum(1 for i in review.issues if i.status in ("open", "countered"))
@@ -861,6 +877,12 @@ def _review_summary(review: ContractReview) -> dict:
         "status": review.status,
         "current_round": review.current_round,
         "total_rounds": len(review.versions),
+        # Carried on the list row so a negotiation can be expanded into its
+        # rounds without a second request per row.
+        "rounds": [
+            _round_summary(v)
+            for v in sorted(review.versions, key=lambda v: v.round_number)
+        ],
         "open_issues": open_issues,
         "total_issues": len(review.issues),
         "file_name": latest.file_name if latest else "",
@@ -1372,6 +1394,7 @@ def export_redline(
     if not os.path.exists(version.file_path):
         raise HTTPException(404, "The uploaded file is missing on disk")
 
+    included = exportable_redlines(redlines)
     data, faithful = export_redline_docx(review, version, redlines)
     suffix = "" if faithful else "_reconstructed"
     filename = (
@@ -1382,8 +1405,11 @@ def export_redline(
         media_type=DOCX_MEDIA,
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
-            # Lets the UI warn that formatting was not preserved.
             "X-Export-Faithful": "true" if faithful else "false",
+            # How many edits were written. Only accepted and reworded redlines
+            # go to the counterparty, so this is usually fewer than the findings
+            # on screen - the UI says so rather than letting it surprise anyone.
+            "X-Export-Edits": str(len(included)),
         },
     )
 

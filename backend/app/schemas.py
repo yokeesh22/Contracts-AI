@@ -220,6 +220,21 @@ class ContractVersionOut(BaseModel):
     completed_at: datetime | None = None
 
 
+class RoundSummary(BaseModel):
+    """A round as it appears on the list page's expanded row."""
+
+    id: int
+    round_number: int
+    direction: str
+    file_name: str
+    doc_kind: str
+    status: str
+    has_tracked_changes: bool = False
+    total_clauses: int = 0
+    sent_at: datetime | None = None
+    created_at: datetime
+
+
 class StatusEventOut(BaseModel):
     from_status: str | None = None
     to_status: str
@@ -251,6 +266,9 @@ class ContractReviewOut(BaseModel):
     status: str
     current_round: int = 1
     total_rounds: int = 1
+    # Every round of this negotiation, oldest first, so the list row can expand
+    # into its history without a request per row.
+    rounds: list[RoundSummary] = []
     open_issues: int = 0
     total_issues: int = 0
     # Taken from the most recent round, so the list can show what is on the desk
