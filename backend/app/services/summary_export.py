@@ -16,7 +16,7 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
 CLASSIFICATION_LABELS = {
-    "UNACCEPTABLE": "Unacceptable",
+    "UNACCEPTABLE": "Critical",
     "MISSING": "Missing Protection",
     "NEGOTIABLE": "Negotiable",
     "ACCEPTABLE": "Acceptable",

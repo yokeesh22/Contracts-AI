@@ -83,6 +83,11 @@ MANUAL_STATUSES = ("pending_vendor", "completed", "in_process")
 # a later round is a regression worth surfacing, not a routine carry-forward.
 SETTLED = ("agreed", "conceded", "dropped")
 
+# The only redlines that reach the counterparty - the same rule the exporter
+# applies. A finding left undecided was never in the file they received, so the
+# next round must not report their silence on it as a refusal.
+RAISED_STATUSES = ("accepted", "modified")
+
 
 def _save_upload(upload: UploadFile) -> tuple[str, str, str]:
     ext = os.path.splitext(upload.filename or "")[1].lower()
@@ -535,6 +540,18 @@ def _carry_forward(
     issue = db.get(Issue, previous.issue_id) if previous.issue_id else None
     action = outcome["action"]
     was_settled = issue.status in SETTLED if issue else False
+    # Did this point actually go out? Only accepted and reworded redlines are
+    # written into the exported file, so anything still sitting at "suggested"
+    # was never put to the counterparty.
+    was_raised = previous.status in RAISED_STATUSES
+
+    if not was_raised and not was_settled:
+        # They cannot have declined something they never received. What matters
+        # is only whether they touched the clause of their own accord.
+        if action in ("rejected", "ignored"):
+            action = "not_raised"
+        elif action == "countered":
+            action = "revised"
 
     block_start = outcome.get("block_start")
     block_end = outcome.get("block_end")
@@ -556,6 +573,11 @@ def _carry_forward(
             f"Accepted in round {version.round_number}: the counterparty took our "
             "proposed wording."
         )
+
+    elif action == "not_raised":
+        # Carried forward exactly as it stood. No note about the counterparty,
+        # because the counterparty had nothing to do with it.
+        pass
 
     elif action in ("rejected", "ignored"):
         if was_settled:
@@ -589,7 +611,7 @@ def _carry_forward(
             ).strip()
             issue_status = "open"
 
-    else:  # countered
+    else:  # countered, or revised without being asked
         matched = [
             rules_by_type[t]
             for t in (_covers(previous) or [previous.clause_type])
@@ -612,6 +634,16 @@ def _carry_forward(
                 issue_status = "countered"
         else:
             issue_status = "countered"
+
+        if action == "revised" and issue_status != "agreed":
+            # They rewrote a clause we had flagged but never put to them.
+            # Unprompted edits are where fresh risk enters, and the note has to
+            # survive even when no playbook rule matched to re-judge it —
+            # that is exactly the case nobody will otherwise look at twice.
+            rationale = (
+                f"The counterparty rewrote this clause in round "
+                f"{version.round_number} without being asked. {rationale or ''}"
+            ).strip()
 
         if was_settled and issue_status != "agreed":
             rationale = (

@@ -4,11 +4,10 @@ import {
   AlertTriangle,
   ArrowLeft,
   CheckCircle2,
+  ChevronDown,
   Download,
-  FileText,
   ListChecks,
   Loader2,
-  Plus,
   Send,
   Undo2,
   Upload,
@@ -18,7 +17,8 @@ import ErrorBoundary from '../components/ErrorBoundary'
 import FileUpload from '../components/FileUpload'
 import SourceDocument from '../components/SourceDocument'
 import RedlineList from '../components/RedlineList'
-import RoundStrip from '../components/RoundStrip'
+import RoundPicker, { NoMarkupWarning } from '../components/RoundPicker'
+import Menu, { MenuItem } from '../components/Menu'
 import Dialog from '../components/Dialog'
 import StatusBadge from '../components/StatusBadge'
 import {
@@ -160,14 +160,26 @@ export default function ReviewDetail() {
   // Downloading never interrupts. A failure is reported inline in the header
   // rather than in a dialog, so the one case that genuinely needs saying is
   // still said without a click standing between the user and their file.
-  const handleExport = async (kind) => {
+  // Downloading never interrupts. A failure is reported inline in the header
+  // rather than in a dialog, so the one case that genuinely needs saying is
+  // still said without a click standing between the user and their file.
+  //
+  // `markSent` folds the one status the app cannot observe into the action that
+  // always precedes it. Downloading the redline and then telling the app you
+  // sent it were two steps that were always taken together, and separating them
+  // meant the second was the one people forgot.
+  const handleExport = async (kind, { markSent = false } = {}) => {
     setExporting(kind)
     setExportError(null)
     try {
-      if (kind === 'redline') {
-        await exportRedline(id, version?.id)
-      } else {
+      if (kind === 'issues') {
         await exportIssues(id, version?.id)
+      } else {
+        await exportRedline(id, version?.id)
+        if (markSent) {
+          await markSentToVendor(id, { note: 'Redline downloaded and sent' })
+          await load()
+        }
       }
     } catch (e) {
       setExportError(e?.response?.data?.detail || 'Export failed.')
@@ -216,14 +228,38 @@ export default function ReviewDetail() {
     )
   }
 
+  const completeNegotiation = () => {
+    if (
+      openIssues &&
+      !window.confirm(
+        `${openIssues} ${openIssues === 1 ? 'issue is' : 'issues are'} still open. ` +
+          'Close the negotiation anyway?',
+      )
+    ) {
+      return
+    }
+    runAction(() => markComplete(id))
+  }
+
   const closed = review.status === 'completed'
   const waiting = review.status === 'pending_vendor' ? waitingLabel(review.sent_to_vendor_at) : null
-  const openIssues = review.issues?.filter((i) => ['open', 'countered'].includes(i.status)).length ?? 0
+  const openIssues =
+    review.issues?.filter((i) => ['open', 'countered'].includes(i.status)).length ?? 0
 
   return (
     <div className="flex h-[calc(100svh-3.5rem)] flex-col">
-      {/* Header */}
-      <div className="flex shrink-0 items-center gap-3 border-b bg-card px-5 py-2.5">
+      {/* Identity on the left, then one named control per question a reviewer
+          has: which version am I reading, what do I download, is this deal done.
+          Nothing here is an unlabelled glyph — "mark complete" and "sent to
+          vendor" are pressed once a round and decide what the other side
+          receives, so they are the last things that should be a guess.
+
+          Sending is not its own button: it is an option inside Download,
+          because downloading the redline and telling the app you sent it were
+          always the same act, and split in two the second half got forgotten.
+          Uploading their reply lives in the round picker for the same reason —
+          it is how a round begins. */}
+      <div className="flex shrink-0 items-center gap-2.5 border-b bg-card px-5 py-2.5">
         <Link
           to="/reviews"
           className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -231,6 +267,7 @@ export default function ReviewDetail() {
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
+
         <div className="min-w-0">
           <h1
             className="truncate text-[15px] font-semibold leading-tight text-foreground"
@@ -245,104 +282,104 @@ export default function ReviewDetail() {
             {waiting && ` · waiting ${waiting}`}
           </p>
         </div>
+
         <StatusBadge status={review.status} />
+
         <div className="flex-1" />
+
         {exportError && (
-          <span className="max-w-[280px] truncate text-[12px] text-destructive" title={exportError}>
+          <span
+            className="max-w-[220px] truncate text-[12px] text-destructive"
+            title={exportError}
+          >
             {exportError}
           </span>
         )}
-        <button
-          type="button"
-          className="btn-secondary h-8 px-3 text-[13px]"
-          onClick={() => handleExport('issues')}
-          disabled={!roundDone || exporting}
-          title="Download the issues list for circulation"
-        >
-          {exporting === 'issues' ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <ListChecks className="h-3.5 w-3.5" />
-          )}
-          Issues list
-        </button>
-        <button
-          type="button"
-          className="btn-primary h-8 px-3 text-[13px]"
-          onClick={() => handleExport('redline')}
-          disabled={!roundDone || exporting}
-          title="Download the marked-up contract with Word tracked changes"
-        >
-          {exporting === 'redline' ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Download className="h-3.5 w-3.5" />
-          )}
-          Redlined .docx
-        </button>
-      </div>
 
-      {/* The negotiation timeline, plus the only two decisions that are a
-          human's to make. Everything else about the status moves itself. */}
-      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b bg-secondary/50 px-5 py-2">
-        <RoundStrip
+        <NoMarkupWarning version={version} />
+
+        <RoundPicker
           versions={versions}
           selectedId={version?.id}
           onSelect={selectRound}
           onAddRound={() => setRoundOpen(true)}
           canAddRound={!closed && versions[versions.length - 1]?.status === 'completed'}
         />
-        <div className="flex-1" />
+
+        <Menu
+          width={300}
+          trigger={({ open, toggle }) => (
+            <button
+              type="button"
+              onClick={toggle}
+              aria-expanded={open}
+              disabled={!roundDone || Boolean(exporting)}
+              className={cn(
+                'flex h-8 items-center gap-1.5 rounded-md border bg-card px-2.5 text-[13px] font-medium text-foreground transition-colors hover:bg-secondary disabled:pointer-events-none disabled:opacity-40',
+                open && 'bg-secondary',
+              )}
+            >
+              {exporting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Download className="h-3.5 w-3.5" />
+              )}
+              Download
+              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+            </button>
+          )}
+        >
+          <MenuItem
+            icon={Download}
+            label="Redlined contract (.docx)"
+            hint="The marked-up contract with Word tracked changes"
+            onClick={() => handleExport('redline')}
+          />
+          <MenuItem
+            icon={Send}
+            label="Redlined contract, and mark as sent"
+            hint="Downloads the same file and starts the clock on the counterparty"
+            disabled={!isLatest || review.status === 'pending_vendor' || closed}
+            onClick={() => handleExport('redline', { markSent: true })}
+          />
+          <MenuItem
+            icon={ListChecks}
+            label="Issues list (.docx)"
+            hint="The tabular summary, for circulation internally"
+            onClick={() => handleExport('issues')}
+          />
+        </Menu>
 
         {closed ? (
           <button
             type="button"
-            className="btn-secondary h-8 px-3 text-[12.5px]"
-            disabled={busy}
+            className="btn-secondary h-8 px-3 text-[13px]"
             onClick={() => runAction(() => setReviewStatus(id, 'in_process', 'Reopened'))}
+            disabled={busy}
             title="Put this negotiation back in play"
           >
-            <Undo2 className="h-3.5 w-3.5" />
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Undo2 className="h-3.5 w-3.5" />}
             Reopen
           </button>
         ) : (
-          <>
-            <button
-              type="button"
-              className="btn-secondary h-8 px-3 text-[12.5px]"
-              disabled={busy || !roundDone || !isLatest || review.status === 'pending_vendor'}
-              onClick={() => setSendOpen(true)}
-              title={
-                review.status === 'pending_vendor'
-                  ? 'Already with the counterparty'
-                  : 'Record that this round’s redline went to the counterparty'
-              }
-            >
-              <Send className="h-3.5 w-3.5" />
-              Sent to vendor
-            </button>
-            <button
-              type="button"
-              className="btn-secondary h-8 px-3 text-[12.5px]"
-              disabled={busy}
-              onClick={() => {
-                if (
-                  openIssues &&
-                  !window.confirm(
-                    `${openIssues} ${openIssues === 1 ? 'issue is' : 'issues are'} still open. ` +
-                      'Close the negotiation anyway?',
-                  )
-                ) {
-                  return
-                }
-                runAction(() => markComplete(id))
-              }}
-              title="Close this negotiation"
-            >
+          <button
+            type="button"
+            className="btn-secondary h-8 px-3 text-[13px]"
+            onClick={completeNegotiation}
+            disabled={busy}
+            title={
+              openIssues
+                ? `${openIssues} still open — you will be asked to confirm`
+                : 'Close this negotiation'
+            }
+          >
+            {busy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
               <CheckCircle2 className="h-3.5 w-3.5" />
-              Mark complete
-            </button>
-          </>
+            )}
+            Mark complete
+          </button>
         )}
       </div>
 
@@ -350,7 +387,10 @@ export default function ReviewDetail() {
       <div className="flex flex-1 overflow-hidden">
         {/* Left — the document */}
         <div className="flex w-1/2 flex-col border-r" style={{ background: '#eef1f6' }}>
-          <div className="flex h-10 shrink-0 items-center gap-2 border-b bg-secondary px-3">
+          {/* Same height as the findings toolbar opposite. Two panes side by
+              side with headers a few pixels apart reads as a misalignment, not
+              as two independent components. */}
+          <div className="flex h-11 shrink-0 items-center gap-2 border-b bg-secondary px-3">
             <SegmentedControl value={mode} onChange={setMode} options={VIEW_MODES} />
             <div className="flex-1" />
             {review.sections?.length > 1 && (
@@ -395,48 +435,6 @@ export default function ReviewDetail() {
 
         {/* Right — the findings */}
         <div className="flex w-1/2 flex-col overflow-hidden bg-background">
-          <div className="flex h-10 shrink-0 items-center gap-2 border-b bg-card px-4">
-            <FileText className="h-[15px] w-[15px] text-primary" />
-            <span className="flex-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {version && version.round_number > 1
-                ? `Round ${version.round_number} — what moved`
-                : 'Findings'}
-            </span>
-            <button
-              type="button"
-              onClick={() => setAddOpen(true)}
-              disabled={!roundDone || readOnly}
-              className="btn-secondary h-7 px-2.5 text-[12px]"
-              title={
-                selection
-                  ? 'Add a redline on the text you selected'
-                  : 'Select text in the document first, or add an unanchored point'
-              }
-            >
-              <Plus className="h-3.5 w-3.5" />
-              {selection ? 'Redline selection' : 'Add redline'}
-            </button>
-            <span className="font-mono-num text-xs text-muted-foreground">
-              {review.redlines?.length ?? 0}
-            </span>
-          </div>
-
-          {/* A returned file with no revision marks can still be reconciled, but
-              only by comparing text — worth saying so rather than letting the
-              results look more precise than they are. */}
-          {roundDone && version?.round_number > 1 && !version.has_tracked_changes && (
-            <div className="shrink-0 border-b bg-card px-4 py-2.5">
-              <div
-                className="flex items-start gap-2 rounded-md border px-3 py-2 text-[12.5px]"
-                style={{ background: '#fefce8', color: '#a16207', borderColor: '#fde68a' }}
-              >
-                <AlertTriangle className="mt-[2px] h-3.5 w-3.5 shrink-0" />
-                This version came back without tracked changes, so the comparison is
-                based on the text alone. Check anything marked “Countered”.
-              </div>
-            </div>
-          )}
-
           {version?.error_message && (
             <div className="shrink-0 border-b bg-card px-4 py-2.5">
               <div
@@ -460,6 +458,13 @@ export default function ReviewDetail() {
               disabled={!roundDone}
               readOnly={readOnly}
               isRunning={isRunning}
+              canAdd={roundDone && !readOnly}
+              onAdd={() => setAddOpen(true)}
+              addHint={
+                selection
+                  ? 'Add a redline on the text you selected'
+                  : 'Select text in the document first, or add an unanchored point'
+              }
             />
             </ErrorBoundary>
           </div>

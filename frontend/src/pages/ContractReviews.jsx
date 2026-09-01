@@ -85,10 +85,14 @@ export default function ContractReviews() {
     {
       key: 'name',
       header: 'Contract',
+      // The contract's own name only. The second line used to carry the latest
+      // round's filename, which changes every time the counterparty sends
+      // something back — so a row people identify by name kept renaming itself.
       render: (row) => (
         <div className="min-w-0">
-          <div className="truncate text-[13px] font-medium text-foreground">{row.name}</div>
-          <div className="truncate text-xs text-muted-foreground">{row.file_name}</div>
+          <div className="truncate text-[13px] font-medium text-foreground" title={row.file_name}>
+            {row.name}
+          </div>
         </div>
       ),
     },
@@ -237,7 +241,7 @@ export default function ContractReviews() {
           onRowClick={(row) => navigate(`/reviews/${row.id}`)}
           renderExpanded={(row) =>
             expanded.has(row.id) && row.rounds?.length > 1 ? (
-              <tr key={`${row.id}-rounds`} className="border-b bg-secondary/40">
+              <tr key={`${row.id}-rounds`} className="border-b bg-secondary">
                 <td colSpan={columns.length} className="px-4 py-2">
                   <RoundList
                     rounds={row.rounds}

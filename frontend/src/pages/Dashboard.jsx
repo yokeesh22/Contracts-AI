@@ -333,7 +333,7 @@ export default function Dashboard() {
                         </span>
                       </div>
                       <div className="flex flex-shrink-0 items-center gap-2">
-                        <span className="font-mono-num text-[13px] tabular-nums text-foreground/85">
+                        <span className="font-mono-num text-[13px] tabular-nums text-foreground">
                           {value}
                         </span>
                         <span className="w-8 text-right text-[11px] text-muted-foreground/75">
@@ -434,7 +434,7 @@ export default function Dashboard() {
                 title={title}
               >
                 <span className="text-[12.5px] text-muted-foreground">{label}</span>
-                <span className="font-mono-num text-[14px] tabular-nums text-foreground/85">
+                <span className="font-mono-num text-[14px] tabular-nums text-foreground">
                   {value}
                 </span>
               </div>

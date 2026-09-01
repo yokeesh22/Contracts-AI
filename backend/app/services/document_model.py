@@ -47,6 +47,15 @@ _CLAUSE_RE = re.compile(
 )
 
 
+# Our own reconstruction notice. A redline exported from a PDF carries this
+# preamble, and that file routinely comes back as the counterparty's next round
+# — at which point our banner would be extracted as though it were a term of the
+# agreement, and offered to the model as a clause to judge.
+_EXPORT_NOTE_RE = re.compile(
+    r"^reconstructed from a pdf upload", re.IGNORECASE
+)
+
+
 def _clean(text: str) -> str:
     # Word smart quotes survive extraction as U+2018/2019/201C/201D; normalise so
     # clause matching and diffing do not treat them as different characters.
@@ -105,7 +114,7 @@ def extract_blocks_from_docx(file_path: str) -> list[dict]:
 
         if tag == "p":
             text = _clean(_para_text(child))
-            if not text:
+            if not text or _EXPORT_NOTE_RE.match(text):
                 continue
             style = _style_of(child)
             blocks.append(

@@ -68,11 +68,26 @@ export default function ContractViewer({
   )
 
   // Scroll the clause into view when a finding is selected on the right.
+  //
+  // Found in the DOM rather than through the ref map: blocks render down two
+  // different paths (paragraphs and table rows), a multi-block clause anchors to
+  // a row the group renderer may skip, and a stale ref silently scrolls nowhere
+  // — which looks exactly like a broken click. `data-block` is written by both
+  // paths, so the lookup cannot drift out of step with what is on screen.
   useEffect(() => {
     if (!activeRedlineId) return
     const redline = redlines.find((r) => r.id === activeRedlineId)
     if (!redline || redline.block_start == null) return
-    scrollIntoView(blockRefs.current[redline.block_start], 'center')
+
+    const root = scrollRef.current
+    if (!root) return
+    const start = redline.block_start
+    const end = redline.block_end ?? start
+    let node = null
+    for (let i = start; i <= end && !node; i += 1) {
+      node = root.querySelector(`[data-block="${i}"]`)
+    }
+    scrollIntoView(node, 'center')
   }, [activeRedlineId, redlines])
 
   const handleMouseUp = () => {
@@ -141,6 +156,7 @@ export default function ContractViewer({
           return (
             <div
               key={block.index}
+              data-block={block.index}
               ref={(node) => {
                 blockRefs.current[block.index] = node
               }}
@@ -214,6 +230,7 @@ function DocTable({
             return (
               <tr
                 key={row.index}
+                data-block={row.index}
                 ref={(node) => {
                   blockRefs.current[row.index] = node
                 }}

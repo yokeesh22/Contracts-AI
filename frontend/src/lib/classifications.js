@@ -10,8 +10,11 @@ export const CLASSIFICATIONS = ['UNACCEPTABLE', 'MISSING', 'NEGOTIABLE', 'ACCEPT
 
 export const CLASSIFICATION_META = {
   UNACCEPTABLE: {
-    label: 'Unacceptable',
-    short: 'Unacceptable',
+    // The stored value stays UNACCEPTABLE — it is the playbook's own severity
+    // vocabulary and changing it would orphan every rule and finding on record.
+    // Only what a reviewer reads changes.
+    label: 'Critical',
+    short: 'Critical',
     hint: 'Hits our walkaway position or shifts material risk to us.',
     bg: 'var(--unacceptable-bg)',
     fg: 'var(--unacceptable-fg)',
@@ -165,7 +168,28 @@ export const VENDOR_ACTION = {
     bg: 'var(--missing-bg)',
     fg: 'var(--missing-fg)',
   },
+  // Only accepted and reworded redlines go into the file the counterparty
+  // receives, so a finding nobody ruled on never reached them. Calling that
+  // "no movement" blames them for a question they were never asked.
+  not_raised: {
+    label: 'Not raised',
+    short: 'Not raised',
+    hint: 'This was not in the redline we sent, and the clause is unchanged.',
+    bg: 'var(--muted)',
+    fg: 'var(--muted-foreground)',
+  },
+  revised: {
+    label: 'Revised unasked',
+    short: 'Revised',
+    hint: 'We did not raise this, but they rewrote the clause anyway — re-assessed against the playbook.',
+    bg: 'var(--negotiable-bg)',
+    fg: 'var(--negotiable-fg)',
+  },
 }
+
+// Points the counterparty never actually saw. Sorted last and filterable, so a
+// round reads as what moved rather than as the previous round repeated.
+export const UNSENT_ACTIONS = ['not_raised']
 
 export const ISSUE_STATUS = {
   open: { label: 'Open', settled: false },

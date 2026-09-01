@@ -88,7 +88,7 @@ export default function DataTable({
         </table>
 
         {pageCount > 1 && (
-          <div className="flex flex-col items-start justify-between gap-4 border-t bg-muted/20 p-4 sm:flex-row sm:items-center">
+          <div className="flex flex-col items-start justify-between gap-4 border-t bg-muted p-4 sm:flex-row sm:items-center">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
               <div className="text-[13px] text-muted-foreground">
                 Showing {safePage * pageSize + 1} to{' '}

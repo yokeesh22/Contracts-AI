@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
-import { Filter, Loader2 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Loader2, X } from 'lucide-react'
 import RedlineCard from './RedlineCard'
 import {
   CLASSIFICATIONS,
   countByClassification,
   metaFor,
+  UNSENT_ACTIONS,
   VENDOR_ACTION,
 } from '../lib/classifications'
 import { cn } from '../lib/utils'
@@ -22,12 +23,21 @@ const SEVERITY_ORDER = {
 const RESPONSE_FILTERS = [
   { key: 'new', label: 'New from vendor', test: (r) => r.is_vendor_introduced },
   { key: 'countered', label: 'Countered', test: (r) => r.vendor_action === 'countered' },
+  { key: 'revised', label: 'Revised unasked', test: (r) => r.vendor_action === 'revised' },
   {
     key: 'no_response',
     label: 'No movement',
     test: (r) => ['rejected', 'ignored'].includes(r.vendor_action),
   },
   { key: 'accepted', label: 'They accepted', test: (r) => r.vendor_action === 'accepted' },
+  {
+    // Kept last and named for what it is. These never reached the counterparty,
+    // so grouping them under "no movement" made every round look like the first
+    // one all over again.
+    key: 'not_raised',
+    label: 'Not raised',
+    test: (r) => r.vendor_action === 'not_raised',
+  },
 ]
 
 /**
@@ -50,7 +60,14 @@ export default function RedlineList({
   disabled = false,
   readOnly = false,
   isRunning = false,
+  canAdd = false,
+  onAdd,
+  addHint,
 }) {
+  // One filter at a time. Two independent dimensions meant a stale response
+  // filter from another round could hide everything a classification chip was
+  // meant to reveal, and the only way out was to notice a "clear" button you
+  // were not looking for.
   const [filter, setFilter] = useState(null)
   const [response, setResponse] = useState(null)
 
@@ -65,6 +82,15 @@ export default function RedlineList({
     [redlines],
   )
 
+  // A response filter that no longer exists on this round — switching from a
+  // vendor reply back to the opening paper — would otherwise silently hide
+  // everything.
+  useEffect(() => {
+    if (!response) return
+    const active = RESPONSE_FILTERS.find((f) => f.key === response)
+    if (!active || !redlines.some(active.test)) setResponse(null)
+  }, [response, redlines])
+
   const visible = useMemo(() => {
     let list = [...redlines]
     if (filter) list = list.filter((r) => r.classification === filter)
@@ -72,8 +98,12 @@ export default function RedlineList({
       const active = RESPONSE_FILTERS.find((f) => f.key === response)
       if (active) list = list.filter(active.test)
     }
+    // Points the counterparty never saw sink below the ones they acted on,
+    // however severe: a round is read for what moved.
+    const unsent = (r) => (UNSENT_ACTIONS.includes(r.vendor_action) ? 1 : 0)
     return list.sort(
       (a, b) =>
+        unsent(a) - unsent(b) ||
         (SEVERITY_ORDER[a.classification] ?? 9) -
           (SEVERITY_ORDER[b.classification] ?? 9) ||
         a.sort_order - b.sort_order,
@@ -82,58 +112,43 @@ export default function RedlineList({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Summary chips double as filters */}
-      <div className="shrink-0 space-y-2 border-b bg-card px-4 py-3">
-        <div className="flex flex-wrap items-center gap-2">
-          {CLASSIFICATIONS.map((key) => {
-            const meta = metaFor(key)
-            const active = filter === key
-            return (
-              <button
-                key={key}
-                type="button"
-                title={meta.hint}
-                onClick={() => setFilter(active ? null : key)}
-                className={cn(
-                  'flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[13px] font-medium transition-all',
-                  active && 'ring-2 ring-primary ring-offset-1',
-                )}
-                style={{
-                  background: meta.bg,
-                  color: meta.fg,
-                  borderColor: meta.border,
-                }}
-              >
-                <span className="font-mono-num text-base tabular-nums">
-                  {counts[key] || 0}
-                </span>
-                <span>{meta.short}</span>
-              </button>
-            )
-          })}
-
-          <div className="flex-1" />
-
-          {(filter || response) && (
+      {/* One band of chrome, not three. The round is named in the header above,
+          so a "Round 2 — what moved" title here only repeated it, and the total
+          count was the sum of the chips beside it. What is left is the two cuts
+          a reviewer actually filters on: how bad, and what moved. */}
+      <div className="flex h-11 shrink-0 items-center gap-1.5 overflow-x-auto border-b bg-card px-4">
+        {CLASSIFICATIONS.map((key) => {
+          const meta = metaFor(key)
+          const active = filter === key
+          return (
             <button
+              key={key}
               type="button"
+              title={meta.hint}
               onClick={() => {
-                setFilter(null)
                 setResponse(null)
+                setFilter(active ? null : key)
               }}
-              className="flex items-center gap-1 whitespace-nowrap text-[12px] text-primary hover:underline"
+              className={cn(
+                'flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] font-medium transition-all',
+                active && 'ring-2 ring-primary ring-offset-1',
+                !counts[key] && 'opacity-45',
+              )}
+              style={{ background: meta.bg, color: meta.fg, borderColor: meta.border }}
             >
-              <Filter className="h-3 w-3" />
-              Clear filter
+              <span className="font-mono-num tabular-nums">{counts[key] || 0}</span>
+              {/* A category with nothing in it keeps its count — "0 unacceptable"
+                  is good news worth seeing — but gives up its label. Naming a
+                  bucket that is empty costs the same room as naming one that is
+                  full, and pushes the categories that matter off the row. */}
+              {Boolean(counts[key]) && meta.short}
             </button>
-          )}
-        </div>
+          )
+        })}
 
         {isRound && (
-          <div className="flex flex-wrap items-center gap-1.5 border-t pt-2">
-            <span className="mr-0.5 text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
-              Since last round
-            </span>
+          <>
+            <span aria-hidden className="mx-1 h-4 w-px bg-border" />
             {RESPONSE_FILTERS.map((f) => {
               const count = responseCounts[f.key] || 0
               if (!count) return null
@@ -143,7 +158,11 @@ export default function RedlineList({
                 <button
                   key={f.key}
                   type="button"
-                  onClick={() => setResponse(active ? null : f.key)}
+                  title={`${f.label} since the previous round`}
+                  onClick={() => {
+                    setFilter(null)
+                    setResponse(active ? null : f.key)
+                  }}
                   className={cn(
                     'flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] font-medium transition-all',
                     active && 'ring-2 ring-primary ring-offset-1',
@@ -159,12 +178,42 @@ export default function RedlineList({
                 </button>
               )
             })}
-          </div>
+          </>
+        )}
+
+        <div className="min-w-2 flex-1" />
+
+        {(filter || response) && (
+          <button
+            type="button"
+            onClick={() => {
+              setFilter(null)
+              setResponse(null)
+            }}
+            title="Clear the filter"
+            aria-label="Clear the filter"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+        {onAdd && (
+          <button
+            type="button"
+            onClick={onAdd}
+            disabled={!canAdd}
+            title={addHint}
+            className="btn-secondary h-7 shrink-0 whitespace-nowrap px-2.5 text-[12px]"
+          >
+            Add redline
+          </button>
         )}
       </div>
 
-      {/* Cards */}
-      <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-4">
+      {/* A flat divided list, not a stack of floating cards. Gaps and shadows
+          around twenty items read as twenty separate things to deal with; a
+          continuous list reads as one list, which is what it is. */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {visible.map((redline) => (
           <RedlineCard
             key={redline.id}
@@ -181,7 +230,7 @@ export default function RedlineList({
         {!visible.length &&
           // While the round is still being analysed there is nothing to say yet,
           // so the spinner stands in for the empty state. It goes as soon as the
-          // first finding lands, because a card is better news than a message.
+          // first finding lands, because a finding is better news than a message.
           (isRunning && !redlines.length ? (
             <div className="flex justify-center py-12">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />

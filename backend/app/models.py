@@ -30,11 +30,20 @@ ISSUE_STATUSES = (
 # What the counterparty did to a position we put to them last round. Derived by
 # diffing their returned document, never by asking the model.
 VENDOR_ACTIONS = (
+    # --- points we actually put to them ---------------------------------
     "accepted",   # our language came back intact
     "rejected",   # reverted to their original wording
     "countered",  # changed to something that is neither
     "ignored",    # required protection they simply did not add
     "removed",    # the clause is gone from the document entirely
+    # --- points we never sent -------------------------------------------
+    # Only accepted and reworded redlines go into the exported file, so a
+    # finding nobody ruled on was never seen by the counterparty. Reporting it
+    # as "they left it as drafted" blames them for a question they were never
+    # asked, and buries the handful of clauses that did move under everything
+    # that never left the building.
+    "not_raised",  # we did not ask, and the clause is unchanged
+    "revised",     # we did not ask, but they rewrote it anyway
 )
 
 
