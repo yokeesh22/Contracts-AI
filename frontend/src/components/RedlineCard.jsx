@@ -6,7 +6,6 @@ import {
   Handshake,
   MessageSquareQuote,
   Pencil,
-  Sparkles,
   Trash2,
   Undo2,
   X,
@@ -159,25 +158,23 @@ export default function RedlineCard({
             <span className="truncate text-[13px] font-medium text-foreground">
               {redline.clause_title || humaniseClauseType(redline.clause_type)}
             </span>
-            {redline.is_vendor_introduced && (
-              <span
-                className="inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide"
-                style={{ background: 'var(--brand-primary-light)', color: 'var(--primary)' }}
-                title="The counterparty added this language — it was not in the previous version"
-              >
-                <Sparkles className="h-2.5 w-2.5" />
-                New
-              </span>
-            )}
           </span>
 
           <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-muted-foreground">
+            {/* The full name, not the shorthand: "Rejected" and "New change"
+                read as jargon next to a clause title, where "Vendor rejected"
+                and "Vendor new change" say who did what. Sentence case for the
+                same reason — these are statements, not labels. */}
             <span
-              className="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
-              style={{ background: meta.bg, color: meta.fg }}
-              title={meta.hint}
+              className="rounded px-1.5 py-0.5 text-[10px] font-medium"
+              style={
+                action
+                  ? { background: action.bg, color: action.fg }
+                  : { background: meta.bg, color: meta.fg }
+              }
+              title={action ? action.hint : meta.hint}
             >
-              {meta.short}
+              {action ? action.label : meta.short}
             </span>
             {!isAnchored && <span className="italic">not in this contract</span>}
             {redline.doc_section && redline.doc_section !== 'Main Agreement' && (
@@ -193,15 +190,6 @@ export default function RedlineCard({
         </span>
 
         <span className="flex shrink-0 flex-col items-end gap-1 pt-0.5">
-          {action && (
-            <span
-              className="whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-              style={{ background: action.bg, color: action.fg }}
-              title={action.hint}
-            >
-              {action.short}
-            </span>
-          )}
           {redline.is_manual_override && (
             <span className="whitespace-nowrap text-[10px] font-medium text-muted-foreground">
               Edited

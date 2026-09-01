@@ -1,5 +1,5 @@
-import { AlertTriangle, ChevronDown, Loader2, Upload } from 'lucide-react'
-import Menu, { MenuDivider, MenuItem } from './Menu'
+import { ChevronDown, Loader2 } from 'lucide-react'
+import Menu, { MenuItem } from './Menu'
 import { cn } from '../lib/utils'
 
 const RUNNING = ['queued', 'pending', 'extracting', 'analyzing']
@@ -14,17 +14,14 @@ const shortDate = (iso) =>
  *
  * This replaced a rail of numbered circles where every round but the open one
  * was a bare digit. It fit, and it told you nothing: a "1" next to a "2" does
- * not explain that these are two versions of a contract, and the "+" that added
- * the counterparty's reply was unguessable. A named trigger and a named list
- * cost one click and remove the guessing.
+ * not explain that these are two versions of a contract. A named trigger and a
+ * named list cost one click and remove the guessing.
+ *
+ * The trigger names the round and stops there. Which round you are on is the
+ * question it answers; what that round was is detail, and the list below spells
+ * it out for every round at once.
  */
-export default function RoundPicker({
-  versions = [],
-  selectedId,
-  onSelect,
-  onAddRound,
-  canAddRound = false,
-}) {
+export default function RoundPicker({ versions = [], selectedId, onSelect }) {
   if (!versions.length) return null
 
   const current = versions.find((v) => v.id === selectedId) ?? versions[versions.length - 1]
@@ -55,9 +52,6 @@ export default function RoundPicker({
           )}
           <span className="whitespace-nowrap font-medium text-foreground">
             Round {current.round_number} of {versions.length}
-          </span>
-          <span className="hidden whitespace-nowrap text-muted-foreground sm:inline">
-            · {roundLabel(current)}
           </span>
           {!isLatest && (
             <span className="rounded bg-muted px-1 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -102,32 +96,6 @@ export default function RoundPicker({
         )
       })}
 
-      {canAddRound && (
-        <>
-          <MenuDivider />
-          <MenuItem
-            icon={Upload}
-            label="Upload the vendor's response…"
-            hint="Starts the next round and compares it against what we sent"
-            onClick={onAddRound}
-          />
-        </>
-      )}
     </Menu>
-  )
-}
-
-/** Amber marker for a returned file that carried no revision marks. */
-export function NoMarkupWarning({ version }) {
-  if (!version || version.round_number === 1 || version.has_tracked_changes) return null
-  return (
-    <span
-      title="This version came back without tracked changes, so the comparison is based on the text alone. Check anything marked Countered."
-      className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11.5px] font-medium"
-      style={{ background: '#fefce8', color: '#a16207' }}
-    >
-      <AlertTriangle className="h-3 w-3" />
-      No markup
-    </span>
   )
 }

@@ -27,25 +27,29 @@ ISSUE_STATUSES = (
     "dropped",    # withdrawn by a reviewer
 )
 
-# What the counterparty did to a position we put to them last round. Derived by
-# diffing their returned document, never by asking the model.
+# What happened to one negotiating point between rounds. Derived by diffing the
+# returned document, never by asking the model.
+#
+# Deliberately few, and named from the reviewer's side of the table. Earlier
+# versions split hairs the reader did not care about - "they reverted my edit"
+# and "they did not insert the clause I asked for" were two states, when both
+# mean the same thing: we asked, they declined.
 VENDOR_ACTIONS = (
-    # --- points we actually put to them ---------------------------------
-    "accepted",   # our language came back intact
-    "rejected",   # reverted to their original wording
-    "countered",  # changed to something that is neither
-    "ignored",    # required protection they simply did not add
-    "removed",    # the clause is gone from the document entirely
-    # --- points we never sent -------------------------------------------
-    # Only accepted and reworded redlines go into the exported file, so a
-    # finding nobody ruled on was never seen by the counterparty. Reporting it
-    # as "they left it as drafted" blames them for a question they were never
-    # asked, and buries the handful of clauses that did move under everything
-    # that never left the building.
-    "not_raised",  # we did not ask, and the clause is unchanged
-    "revised",     # we did not ask, but they rewrote it anyway
+    "accepted",    # they took our wording
+    "rejected",    # they kept theirs, or never added the clause we asked for
+    "countered",   # they wrote something different, in whole or in part
+    "removed",     # the clause is gone from the document entirely
+    "new_change",  # they changed or inserted something we never raised
+    "reopened",    # they re-edited a point that was already settled
+    # Ours, not theirs: only accepted and reworded redlines reach the exported
+    # file, so anything else was never put to the counterparty. Their silence on
+    # it is not a refusal, and reporting it as one made every round read like the
+    # first one repeated.
+    "not_sent",
 )
 
+# Actions that mean the counterparty never saw the point. Collapsed in the UI.
+UNSENT_ACTIONS = ("not_sent",)
 
 class User(Base):
     __tablename__ = "users"
@@ -244,6 +248,11 @@ class ContractVersion(Base):
     # Set when this round's redline was handed to the counterparty.
     sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     sent_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Exactly which redlines were in the file that went out, as a JSON list of
+    # ids. Without it, "did they see this?" is answered from a redline's current
+    # status - so accepting something after sending would make the next round
+    # believe the counterparty had refused it.
+    sent_redline_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

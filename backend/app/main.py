@@ -33,6 +33,20 @@ _REDLINE_COLUMNS = {
     "is_vendor_introduced": "BOOLEAN DEFAULT 0",
 }
 
+_VERSION_COLUMNS = {
+    "sent_redline_ids": "TEXT",
+}
+
+# The vendor-action vocabulary was consolidated: "they did not add the clause"
+# and "they reverted my edit" are one decision, and an unprompted rewrite reads
+# the same as brand-new language. Stored rows are rewritten rather than left to
+# render under labels that no longer exist.
+_ACTION_RENAMES = {
+    "ignored": "rejected",
+    "not_raised": "not_sent",
+    "revised": "new_change",
+}
+
 _REVIEW_COLUMNS = {
     "status_changed_at": "DATETIME",
     "sent_to_vendor_at": "DATETIME",
@@ -66,6 +80,20 @@ def _run_light_migrations():
         for name, ddl in _REDLINE_COLUMNS.items():
             if name not in redline_cols:
                 conn.execute(text(f"ALTER TABLE redlines ADD COLUMN {name} {ddl}"))
+
+        version_cols = _columns(conn, "contract_versions")
+        for name, ddl in _VERSION_COLUMNS.items():
+            if version_cols and name not in version_cols:
+                conn.execute(
+                    text(f"ALTER TABLE contract_versions ADD COLUMN {name} {ddl}")
+                )
+
+        if "vendor_action" in _columns(conn, "redlines"):
+            for was, now in _ACTION_RENAMES.items():
+                conn.execute(
+                    text("UPDATE redlines SET vendor_action = :now WHERE vendor_action = :was"),
+                    {"now": now, "was": was},
+                )
 
         review_cols = _columns(conn, "contract_reviews")
         if not review_cols:

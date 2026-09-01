@@ -84,9 +84,22 @@ MANUAL_STATUSES = ("pending_vendor", "completed", "in_process")
 SETTLED = ("agreed", "conceded", "dropped")
 
 # The only redlines that reach the counterparty - the same rule the exporter
-# applies. A finding left undecided was never in the file they received, so the
-# next round must not report their silence on it as a refusal.
+# applies. A finding left undecided, or one the reviewer rejected, was never in
+# the file they received, so the next round must not report their silence on it
+# as a refusal.
 RAISED_STATUSES = ("accepted", "modified")
+
+
+def _was_raised(previous: Redline, sent_ids: set[int] | None) -> bool:
+    """Did the counterparty actually receive this point?
+
+    Answered from the snapshot taken when the round was marked sent, and only
+    from the redline's current status when there is no snapshot - otherwise a
+    decision changed after sending would rewrite history.
+    """
+    if sent_ids is not None:
+        return previous.id in sent_ids
+    return previous.status in RAISED_STATUSES
 
 
 def _save_upload(upload: UploadFile) -> tuple[str, str, str]:
@@ -451,6 +464,12 @@ def _run_next_round(version_id: int) -> None:
             .all()
         )
         comment_lookup = _comment_lookup(blocks)
+        sent_ids = None
+        if prior.sent_redline_ids:
+            try:
+                sent_ids = set(json.loads(prior.sent_redline_ids))
+            except (json.JSONDecodeError, TypeError):
+                sent_ids = None
 
         version.total_clauses = len(prior_redlines)
         db.commit()
@@ -461,7 +480,8 @@ def _run_next_round(version_id: int) -> None:
         for previous in prior_redlines:
             outcome = classify_response(previous, blocks)
             carried = _carry_forward(
-                db, review, version, previous, outcome, rules_by_type, comment_lookup, order
+                db, review, version, previous, outcome, rules_by_type,
+                comment_lookup, order, sent_ids,
             )
             if carried is None:
                 continue
@@ -531,6 +551,7 @@ def _carry_forward(
     rules_by_type: dict,
     comment_lookup: dict[int, str],
     order: int,
+    sent_ids: set[int] | None = None,
 ) -> Redline | None:
     """Thread one position from the last round into this one.
 
@@ -540,18 +561,25 @@ def _carry_forward(
     issue = db.get(Issue, previous.issue_id) if previous.issue_id else None
     action = outcome["action"]
     was_settled = issue.status in SETTLED if issue else False
-    # Did this point actually go out? Only accepted and reworded redlines are
-    # written into the exported file, so anything still sitting at "suggested"
-    # was never put to the counterparty.
-    was_raised = previous.status in RAISED_STATUSES
+    was_raised = _was_raised(previous, sent_ids)
+
+    # Asking for a clause they never added and asking for wording they reverted
+    # are the same decision from where a reviewer sits: we asked, they declined.
+    if action == "ignored":
+        action = "rejected"
 
     if not was_raised and not was_settled:
-        # They cannot have declined something they never received. What matters
-        # is only whether they touched the clause of their own accord.
-        if action in ("rejected", "ignored"):
-            action = "not_raised"
+        # They cannot have declined something they never received. All that
+        # matters is whether they touched the clause of their own accord.
+        if action == "rejected":
+            action = "not_sent"
         elif action == "countered":
-            action = "revised"
+            action = "new_change"
+
+    # A point that was already put to bed and has moved again is the one thing
+    # in a late round nobody can afford to skim past.
+    if was_settled and action in ("countered", "new_change", "removed"):
+        action = "reopened"
 
     block_start = outcome.get("block_start")
     block_end = outcome.get("block_end")
@@ -574,12 +602,12 @@ def _carry_forward(
             "proposed wording."
         )
 
-    elif action == "not_raised":
+    elif action == "not_sent":
         # Carried forward exactly as it stood. No note about the counterparty,
         # because the counterparty had nothing to do with it.
         pass
 
-    elif action in ("rejected", "ignored"):
+    elif action == "rejected":
         if was_settled:
             # We had already stopped pushing this. Them leaving it alone is not
             # news, and re-opening it would put a dead point back in front of a
@@ -589,7 +617,7 @@ def _carry_forward(
         else:
             note = (
                 "The counterparty did not add this clause."
-                if action == "ignored"
+                if not previous.original_text
                 else "The counterparty left this clause as originally drafted."
             )
             rationale = f"{note} {previous.rationale or ''}".strip()
@@ -611,7 +639,7 @@ def _carry_forward(
             ).strip()
             issue_status = "open"
 
-    else:  # countered, or revised without being asked
+    else:  # countered, changed unasked, or reopened
         matched = [
             rules_by_type[t]
             for t in (_covers(previous) or [previous.clause_type])
@@ -635,15 +663,18 @@ def _carry_forward(
         else:
             issue_status = "countered"
 
-        if action == "revised" and issue_status != "agreed":
+        if action in ("new_change", "reopened") and issue_status != "agreed":
             # They rewrote a clause we had flagged but never put to them.
             # Unprompted edits are where fresh risk enters, and the note has to
             # survive even when no playbook rule matched to re-judge it —
             # that is exactly the case nobody will otherwise look at twice.
-            rationale = (
-                f"The counterparty rewrote this clause in round "
-                f"{version.round_number} without being asked. {rationale or ''}"
-            ).strip()
+            opener = (
+                "This point was settled, and the counterparty has changed the "
+                "clause again"
+                if action == "reopened"
+                else "The counterparty rewrote this clause without being asked"
+            )
+            rationale = f"{opener} in round {version.round_number}. {rationale or ''}".strip()
 
         if was_settled and issue_status != "agreed":
             rationale = (
@@ -711,6 +742,15 @@ def _analyse_new_language(
     if not fresh:
         return order
 
+    # Positions already being negotiated. A re-detection of one of these is the
+    # same argument in slightly different words, and raising it twice would put
+    # a reviewer in the position of conceding a point they had already won.
+    live_types = {
+        i.clause_type
+        for i in db.query(Issue).filter(Issue.review_id == review.id).all()
+        if i.clause_type and i.status not in SETTLED
+    }
+
     hits = locate_clauses(fresh, list(rules_by_type.keys()))
     for group in group_hits(hits):
         # A clause already threaded from last round is not new risk, however
@@ -719,6 +759,8 @@ def _analyse_new_language(
             group["block_start"] <= end and group["block_end"] >= start
             for start, end in claimed
         ):
+            continue
+        if any(t in live_types for t in group["clause_types"]):
             continue
 
         matched = [
@@ -770,6 +812,7 @@ def _analyse_new_language(
                     f"counterparty. {result['rationale'] or ''}"
                 ).strip(),
                 is_vendor_introduced=True,
+                vendor_action="new_change",
                 status="suggested",
                 source="ai",
             )
@@ -1169,6 +1212,11 @@ def mark_sent_to_vendor(
     review.sent_to_vendor_at = sent_at
     latest.sent_at = sent_at
     latest.sent_note = payload.note or latest.sent_note
+    # Freeze what the counterparty is actually receiving. Reading it back off
+    # current statuses later would misreport any decision changed afterwards.
+    latest.sent_redline_ids = json.dumps(
+        [r.id for r in latest.redlines if r.status in RAISED_STATUSES and r.proposed_text]
+    )
     _set_status(
         db,
         review,

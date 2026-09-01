@@ -335,3 +335,52 @@
     transform: none !important;
   }
 }
+
+/* ── Scrollbars ──────────────────────────────────────────────────────────────
+   Thin, and in the brand blue rather than the platform grey. The document pane
+   and the findings list both scroll constantly while a contract is worked, so a
+   default 15px chrome scrollbar is a permanent stripe of someone else's design
+   down the middle of the screen.
+
+   The colour is a pale blue-grey, deliberately between two failed attempts:
+   --brand-primary-light is a tint meant to sit behind text and vanished as a
+   thin bar, while a mid blue read as a saturated stripe competing with the
+   contract. This one is visible against both white and the document pane's
+   grey without asking to be looked at, and darkens on hover for grabbing.
+
+   Chrome now honours `scrollbar-color`, and when it does it ignores the
+   ::-webkit rules entirely — so the standard properties carry the real
+   appearance and the pseudo-elements are only a fallback for older engines. */
+:root {
+  --scrollbar-thumb: #d3e2f1;
+  --scrollbar-thumb-hover: #b0cce8;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* Where two scrollbars meet, an unstyled corner square is the one grey artefact
+   left on the page. */
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}

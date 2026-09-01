@@ -17,7 +17,8 @@ import ErrorBoundary from '../components/ErrorBoundary'
 import FileUpload from '../components/FileUpload'
 import SourceDocument from '../components/SourceDocument'
 import RedlineList from '../components/RedlineList'
-import RoundPicker, { NoMarkupWarning } from '../components/RoundPicker'
+import FindingsToolbar from '../components/FindingsToolbar'
+import RoundPicker from '../components/RoundPicker'
 import Menu, { MenuItem } from '../components/Menu'
 import Dialog from '../components/Dialog'
 import StatusBadge from '../components/StatusBadge'
@@ -35,6 +36,7 @@ import {
   updateRedline,
 } from '../services/api'
 import { waitingLabel } from '../lib/classifications'
+import { partition } from '../lib/findings'
 import { cn } from '../lib/utils'
 
 const VIEW_MODES = [
@@ -64,6 +66,10 @@ export default function ReviewDetail() {
   const [busy, setBusy] = useState(false)
   // null means "whatever the latest round is", so a finishing round pulls the
   // view forward on its own instead of stranding the reviewer on the old one.
+  // Filter state lives here rather than in the findings pane, because the chips
+  // that drive it sit in a row shared with the document pane's toolbar.
+  const [severity, setSeverity] = useState(null)
+  const [showIgnored, setShowIgnored] = useState(false)
   const [versionId, setVersionId] = useState(() => {
     const raw = searchParams.get('version')
     return raw ? Number(raw) : null
@@ -120,6 +126,9 @@ export default function ReviewDetail() {
     [review, section],
   )
 
+  const allRedlines = review?.redlines ?? []
+  const findings = partition(allRedlines, { severity, showIgnored })
+
   const selectRound = (nextId) => {
     const latestId = versions[versions.length - 1]?.id
     const next = nextId === latestId ? null : nextId
@@ -127,6 +136,10 @@ export default function ReviewDetail() {
     setSearchParams(next ? { version: String(next) } : {}, { replace: true })
     setActiveId(null)
     setSection(null)
+    // Severity buckets differ between the opening paper and a vendor round, so
+    // a filter carried across would silently hide everything.
+    setSeverity(null)
+    setShowIgnored(false)
   }
 
   const handleUpdate = async (redlineId, patch) => {
@@ -268,20 +281,19 @@ export default function ReviewDetail() {
           <ArrowLeft className="h-4 w-4" />
         </Link>
 
-        <div className="min-w-0">
-          <h1
-            className="truncate text-[15px] font-semibold leading-tight text-foreground"
-            title={`${version?.file_name ?? ''} · reviewed against ${review.playbook?.name ?? ''}`}
-          >
-            {review.name}
-          </h1>
-          <p className="truncate text-[11.5px] text-muted-foreground">
-            {review.counterparty ? `${review.counterparty} · ` : ''}
-            {openIssues} open {openIssues === 1 ? 'issue' : 'issues'} of{' '}
-            {review.issues?.length ?? 0}
-            {waiting && ` · waiting ${waiting}`}
-          </p>
-        </div>
+        <h1
+          className="min-w-0 truncate text-[15px] font-semibold leading-tight text-foreground"
+          title={[
+            review.counterparty,
+            version?.file_name,
+            review.playbook?.name && `reviewed against ${review.playbook.name}`,
+            waiting && `waiting ${waiting}`,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        >
+          {review.name}
+        </h1>
 
         <StatusBadge status={review.status} />
 
@@ -296,15 +308,7 @@ export default function ReviewDetail() {
           </span>
         )}
 
-        <NoMarkupWarning version={version} />
-
-        <RoundPicker
-          versions={versions}
-          selectedId={version?.id}
-          onSelect={selectRound}
-          onAddRound={() => setRoundOpen(true)}
-          canAddRound={!closed && versions[versions.length - 1]?.status === 'completed'}
-        />
+        <RoundPicker versions={versions} selectedId={version?.id} onSelect={selectRound} />
 
         <Menu
           width={300}
@@ -350,6 +354,17 @@ export default function ReviewDetail() {
           />
         </Menu>
 
+        <button
+          type="button"
+          className="btn-secondary h-8 px-3 text-[13px]"
+          onClick={() => setRoundOpen(true)}
+          disabled={closed || versions[versions.length - 1]?.status !== 'completed'}
+          title="Upload the version the counterparty sent back — starts the next round"
+        >
+          <Upload className="h-3.5 w-3.5" />
+          Vendor response
+        </button>
+
         {closed ? (
           <button
             type="button"
@@ -383,57 +398,73 @@ export default function ReviewDetail() {
         )}
       </div>
 
+      {/* Both toolbars share one flex row, so they are exactly as tall as each
+          other at every width without anything measuring anything. Each pane
+          owning its own header meant they only lined up when the filter chips
+          happened not to wrap. */}
+      <div className="flex shrink-0 border-b">
+        <div className="flex w-1/2 min-h-[44px] items-center gap-2 border-r bg-secondary px-3 py-1.5">
+          <SegmentedControl value={mode} onChange={setMode} options={VIEW_MODES} />
+          <div className="flex-1" />
+          {review.sections?.length > 1 && (
+            <select
+              className="h-7 max-w-[240px] rounded-md border bg-card px-2 text-[12px] text-foreground outline-none"
+              value={section || ''}
+              onChange={(e) => setSection(e.target.value)}
+              title="This upload contains several documents"
+            >
+              {review.sections.map((sec) => (
+                <option key={sec} value={sec}>
+                  {sec}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+
+        <div className="flex w-1/2 min-h-[44px] flex-wrap items-center gap-1.5 bg-card px-4 py-1.5">
+          <FindingsToolbar
+            redlines={allRedlines}
+            severity={severity}
+            setSeverity={setSeverity}
+            canAdd={roundDone && !readOnly}
+            onAdd={() => setAddOpen(true)}
+            addHint={
+              selection
+                ? 'Add a redline on the text you selected'
+                : 'Select text in the document first, or add an unanchored point'
+            }
+          />
+        </div>
+      </div>
+
       {/* Split body */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left — the document */}
         <div className="flex w-1/2 flex-col border-r" style={{ background: '#eef1f6' }}>
-          {/* Same height as the findings toolbar opposite. Two panes side by
-              side with headers a few pixels apart reads as a misalignment, not
-              as two independent components. */}
-          <div className="flex h-11 shrink-0 items-center gap-2 border-b bg-secondary px-3">
-            <SegmentedControl value={mode} onChange={setMode} options={VIEW_MODES} />
-            <div className="flex-1" />
-            {review.sections?.length > 1 && (
-              <select
-                className="h-7 max-w-[240px] rounded-md border bg-card px-2 text-[12px] text-foreground outline-none"
-                value={section || ''}
-                onChange={(e) => setSection(e.target.value)}
-                title="This upload contains several documents"
-              >
-                {review.sections.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-
           <div className="min-h-0 flex-1">
             <ErrorBoundary label="The document could not be displayed">
-            {mode === 'source' ? (
-              <SourceDocument
-                url={contractFileUrl(review.id, version?.id)}
-                fileName={version?.file_name}
-                docKind={version?.doc_kind}
-              />
-            ) : (
-            <ContractViewer
-              blocks={review.blocks}
-              redlines={review.redlines}
-              mode={mode}
-              section={section}
-              activeRedlineId={activeId}
-              onSelectRedline={selectRedline}
-              selectionEnabled={roundDone && !readOnly}
-              onSelectBlocks={setSelection}
-            />
-            )}
+              {mode === 'source' ? (
+                <SourceDocument
+                  url={contractFileUrl(review.id, version?.id)}
+                  fileName={version?.file_name}
+                  docKind={version?.doc_kind}
+                />
+              ) : (
+                <ContractViewer
+                  blocks={review.blocks}
+                  redlines={review.redlines}
+                  mode={mode}
+                  section={section}
+                  activeRedlineId={activeId}
+                  onSelectRedline={selectRedline}
+                  selectionEnabled={roundDone && !readOnly}
+                  onSelectBlocks={setSelection}
+                />
+              )}
             </ErrorBoundary>
           </div>
         </div>
 
-        {/* Right — the findings */}
         <div className="flex w-1/2 flex-col overflow-hidden bg-background">
           {version?.error_message && (
             <div className="shrink-0 border-b bg-card px-4 py-2.5">
@@ -449,23 +480,21 @@ export default function ReviewDetail() {
 
           <div className="min-h-0 flex-1">
             <ErrorBoundary label="The findings could not be displayed">
-            <RedlineList
-              redlines={review.redlines || []}
-              activeRedlineId={activeId}
-              onSelect={selectRedline}
-              onUpdate={handleUpdate}
-              onDelete={handleDelete}
-              disabled={!roundDone}
-              readOnly={readOnly}
-              isRunning={isRunning}
-              canAdd={roundDone && !readOnly}
-              onAdd={() => setAddOpen(true)}
-              addHint={
-                selection
-                  ? 'Add a redline on the text you selected'
-                  : 'Select text in the document first, or add an unanchored point'
-              }
-            />
+              <RedlineList
+                redlines={findings.visible}
+                ignored={findings.ignored}
+                ignoredCount={findings.ignoredCount}
+                showIgnored={showIgnored}
+                onToggleIgnored={() => setShowIgnored((v) => !v)}
+                total={allRedlines.length}
+                activeRedlineId={activeId}
+                onSelect={selectRedline}
+                onUpdate={handleUpdate}
+                onDelete={handleDelete}
+                disabled={!roundDone}
+                readOnly={readOnly}
+                isRunning={isRunning}
+              />
             </ErrorBoundary>
           </div>
         </div>

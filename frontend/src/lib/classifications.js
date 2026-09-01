@@ -130,66 +130,80 @@ export const NEGOTIATION_STATUS = {
   failed: { label: 'Failed', hint: 'The current round could not be processed.', manual: false },
 }
 
-// What the counterparty did to a position we put to them last round. Derived by
-// diffing their returned file, so these are findings rather than guesses.
+// What happened to one negotiating point between rounds. Derived by diffing
+// their returned file, so these are findings rather than guesses.
+//
+// Deliberately few, and named from the reviewer's side of the table. Splitting
+// "they reverted my edit" from "they never added the clause I asked for" was a
+// distinction about how the document differs, not about what the counterparty
+// decided — and both mean the same thing: we asked, they declined.
 export const VENDOR_ACTION = {
   accepted: {
-    label: 'Accepted',
+    label: 'Vendor accepted',
     short: 'Accepted',
     hint: 'They took our proposed wording.',
     bg: 'var(--acceptable-bg)',
     fg: 'var(--acceptable-fg)',
   },
   countered: {
-    label: 'Countered',
-    short: 'Countered',
-    hint: 'They proposed something else. Read what they wrote.',
+    label: 'Vendor counter-proposed',
+    short: 'Counter-proposed',
+    hint: 'They wrote something different — in whole or in part. Read what they put there.',
     bg: 'var(--negotiable-bg)',
     fg: 'var(--negotiable-fg)',
   },
   rejected: {
-    label: 'No change',
-    short: 'No change',
-    hint: 'They left the clause exactly as originally drafted.',
+    label: 'Vendor rejected',
+    short: 'Rejected',
+    hint: 'They kept their own wording, or did not add the clause we asked for.',
     bg: 'var(--unacceptable-bg)',
     fg: 'var(--unacceptable-fg)',
-  },
-  ignored: {
-    label: 'No response',
-    short: 'No response',
-    hint: 'They did not add the clause we asked for.',
-    bg: 'var(--missing-bg)',
-    fg: 'var(--missing-fg)',
   },
   removed: {
     label: 'Clause deleted',
     short: 'Deleted',
-    hint: 'They struck this clause from the document entirely.',
+    hint: 'They struck this clause out entirely — check whether that resolves the point or removes a protection.',
     bg: 'var(--missing-bg)',
     fg: 'var(--missing-fg)',
   },
-  // Only accepted and reworded redlines go into the file the counterparty
-  // receives, so a finding nobody ruled on never reached them. Calling that
-  // "no movement" blames them for a question they were never asked.
-  not_raised: {
-    label: 'Not raised',
-    short: 'Not raised',
+  new_change: {
+    label: 'Vendor new change',
+    short: 'New change',
+    hint: 'They changed or added this without being asked. Re-assessed against the playbook.',
+    bg: 'var(--brand-primary-light)',
+    fg: 'var(--primary)',
+  },
+  reopened: {
+    label: 'Vendor reopened',
+    short: 'Reopened',
+    hint: 'This point was settled, and they have changed the clause again.',
+    bg: 'var(--unacceptable-bg)',
+    fg: 'var(--unacceptable-fg)',
+  },
+  // Ours, not theirs. Only accepted and reworded redlines reach the exported
+  // file, so anything undecided or rejected never went out — their silence on
+  // it is not a refusal.
+  not_sent: {
+    label: 'Ignored',
+    short: 'Ignored',
     hint: 'This was not in the redline we sent, and the clause is unchanged.',
     bg: 'var(--muted)',
     fg: 'var(--muted-foreground)',
   },
-  revised: {
-    label: 'Revised unasked',
-    short: 'Revised',
-    hint: 'We did not raise this, but they rewrote the clause anyway — re-assessed against the playbook.',
-    bg: 'var(--negotiable-bg)',
-    fg: 'var(--negotiable-fg)',
-  },
 }
 
-// Points the counterparty never actually saw. Sorted last and filterable, so a
-// round reads as what moved rather than as the previous round repeated.
-export const UNSENT_ACTIONS = ['not_raised']
+// Points the counterparty never saw. Collapsed in the findings list, so a round
+// reads as what moved rather than as the previous round repeated.
+export const UNSENT_ACTIONS = ['not_sent']
+
+// From round two the four severities collapse to this one question, because by
+// then the list is read for what moved and severity is the tiebreak. A missing
+// required protection sits with the critical ones: a hole in the contract is
+// the same order of risk as a clause that is actively against us.
+export const CRITICAL_CLASSIFICATIONS = ['UNACCEPTABLE', 'MISSING']
+
+export const isCritical = (classification) =>
+  CRITICAL_CLASSIFICATIONS.includes(classification)
 
 export const ISSUE_STATUS = {
   open: { label: 'Open', settled: false },
