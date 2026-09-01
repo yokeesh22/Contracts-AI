@@ -238,13 +238,18 @@ def _register_comments_part(zin: zipfile.ZipFile) -> tuple[bytes, bytes]:
     )
 
 
-def export_tracked_docx(review, redlines, author: str = "Contracts.AI") -> bytes:
-    """Write revision marks into the original .docx and return the new file."""
-    blocks = load_blocks(review.blocks_json)
+def export_tracked_docx(version, redlines, author: str = "Contracts.AI") -> bytes:
+    """Write revision marks into the original .docx and return the new file.
+
+    Takes the version rather than the negotiation: from round two the revisions
+    have to be written into the file the counterparty last sent us, not into the
+    paper they opened with.
+    """
+    blocks = load_blocks(version.blocks_json)
     by_index = {b["index"]: b for b in blocks}
     rev = _Revision(author)
 
-    with zipfile.ZipFile(review.file_path) as zin:
+    with zipfile.ZipFile(version.file_path) as zin:
         doc_root = ET.fromstring(zin.read("word/document.xml"))
         comments_root, comments_existed = _ensure_comments_part(zin)
         ct_bytes, rels_bytes = _register_comments_part(zin)
@@ -495,7 +500,7 @@ def _inject_comments(docx_bytes: bytes, comments: list[tuple[int, str]], author:
     return buffer.read()
 
 
-def export_reconstructed_docx(review, redlines, author: str = "Contracts.AI") -> bytes:
+def export_reconstructed_docx(review, version, redlines, author: str = "Contracts.AI") -> bytes:
     """Build a Word file from extracted blocks, for contracts uploaded as PDF.
 
     The text and the revision marks are faithful; the vendor's original layout
@@ -503,7 +508,7 @@ def export_reconstructed_docx(review, redlines, author: str = "Contracts.AI") ->
     """
     from docx import Document
 
-    blocks = load_blocks(review.blocks_json)
+    blocks = load_blocks(version.blocks_json)
     exportable = _exportable(redlines)
     edits = {
         r.block_start: r for r in exportable if r.block_start is not None
@@ -570,8 +575,10 @@ def export_reconstructed_docx(review, redlines, author: str = "Contracts.AI") ->
     return _inject_comments(buffer.read(), comments, author)
 
 
-def export_redline_docx(review, redlines, author: str = "Contracts.AI") -> tuple[bytes, bool]:
+def export_redline_docx(
+    review, version, redlines, author: str = "Contracts.AI"
+) -> tuple[bytes, bool]:
     """Return (file bytes, is_faithful). `is_faithful` is False for PDF sources."""
-    if review.doc_kind == "docx":
-        return export_tracked_docx(review, redlines, author), True
-    return export_reconstructed_docx(review, redlines, author), False
+    if version.doc_kind == "docx":
+        return export_tracked_docx(version, redlines, author), True
+    return export_reconstructed_docx(review, version, redlines, author), False

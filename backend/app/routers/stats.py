@@ -5,7 +5,14 @@ from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import ContractReview, Playbook, PlaybookRule, Redline
+from ..models import (
+    ContractReview,
+    ContractVersion,
+    Issue,
+    Playbook,
+    PlaybookRule,
+    Redline,
+)
 
 router = APIRouter(prefix="/stats", tags=["stats"])
 
@@ -29,6 +36,36 @@ def get_stats(db: Session = Depends(get_db)):
         or 0
     )
     total_redlines = db.query(func.count(Redline.id)).scalar() or 0
+
+    # Where every live negotiation stands. The single most useful number on the
+    # page is how many are sitting with the counterparty and for how long -
+    # nothing moves on those until somebody chases them.
+    negotiation_rows = (
+        db.query(ContractReview.status, func.count(ContractReview.id))
+        .group_by(ContractReview.status)
+        .all()
+    )
+    by_negotiation = {status: count for status, count in negotiation_rows}
+
+    waiting = (
+        db.query(ContractReview)
+        .filter(
+            ContractReview.status == "pending_vendor",
+            ContractReview.sent_to_vendor_at.isnot(None),
+        )
+        .all()
+    )
+    now = datetime.utcnow()
+    waiting_days = sorted(
+        ((now - r.sent_to_vendor_at).days for r in waiting), reverse=True
+    )
+
+    issue_rows = (
+        db.query(Issue.status, func.count(Issue.id)).group_by(Issue.status).all()
+    )
+    by_issue = {status: count for status, count in issue_rows}
+
+    total_rounds = db.query(func.count(ContractVersion.id)).scalar() or 0
 
     rows = (
         db.query(Redline.classification, func.count(Redline.id))
@@ -77,8 +114,8 @@ def get_stats(db: Session = Depends(get_db)):
         for i in range(window_days)
     }
 
-    for (created,) in db.query(ContractReview.created_at).filter(
-        ContractReview.created_at.isnot(None)
+    for (created,) in db.query(ContractVersion.created_at).filter(
+        ContractVersion.created_at.isnot(None)
     ):
         day = created.date()
         if day in buckets:
@@ -109,6 +146,9 @@ def get_stats(db: Session = Depends(get_db)):
         .all()
     )
 
+    def _latest(review):
+        return max(review.versions, key=lambda v: v.round_number, default=None)
+
     return {
         "total_playbooks": total_playbooks,
         "total_rules": total_rules,
@@ -121,6 +161,24 @@ def get_stats(db: Session = Depends(get_db)):
             "accepted": by_status.get("accepted", 0),
             "rejected": by_status.get("rejected", 0),
             "modified": by_status.get("modified", 0),
+        },
+        "negotiation_status": {
+            key: by_negotiation.get(key, 0)
+            for key in (
+                "ai_in_progress",
+                "ai_completed",
+                "in_process",
+                "pending_vendor",
+                "completed",
+                "failed",
+            )
+        },
+        "pending_vendor": len(waiting),
+        "longest_wait_days": waiting_days[0] if waiting_days else 0,
+        "total_rounds": total_rounds,
+        "issue_status": {
+            key: by_issue.get(key, 0)
+            for key in ("open", "countered", "agreed", "conceded", "dropped")
         },
         "activity_series": activity_series,
         "clause_pressure": [
@@ -137,9 +195,13 @@ def get_stats(db: Session = Depends(get_db)):
                 "name": r.name,
                 "counterparty": r.counterparty,
                 "status": r.status,
-                "doc_kind": r.doc_kind,
-                "total_clauses": r.total_clauses,
-                "analyzed_count": r.analyzed_count,
+                "current_round": r.current_round,
+                "open_issues": sum(
+                    1 for i in r.issues if i.status in ("open", "countered")
+                ),
+                "doc_kind": (_latest(r).doc_kind if _latest(r) else "docx"),
+                "total_clauses": (_latest(r).total_clauses if _latest(r) else 0),
+                "analyzed_count": (_latest(r).analyzed_count if _latest(r) else 0),
                 "created_at": r.created_at.isoformat() if r.created_at else None,
             }
             for r in recent

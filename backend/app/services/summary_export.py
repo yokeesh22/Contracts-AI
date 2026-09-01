@@ -82,7 +82,7 @@ def _write_cell(cell, text: str, size: int = 8, bold: bool = False, color=None):
         run.font.color.rgb = color
 
 
-def generate_issues_list_docx(review, redlines: list) -> bytes:
+def generate_issues_list_docx(review, version, redlines: list) -> bytes:
     doc = Document()
 
     section = doc.sections[0]
@@ -98,12 +98,13 @@ def generate_issues_list_docx(review, redlines: list) -> bytes:
     for redline in redlines:
         counts[redline.classification] = counts.get(redline.classification, 0) + 1
 
-    info = doc.add_table(rows=5, cols=2)
+    info = doc.add_table(rows=6, cols=2)
     info.style = "Table Grid"
     rows = [
         ("Contract", review.name),
         ("Counterparty", review.counterparty or "-"),
         ("Playbook", review.playbook.name if review.playbook else "-"),
+        ("Round", f"{version.round_number}"),
         ("Reviewed", datetime.now().strftime("%Y-%m-%d %H:%M")),
         ("Findings", str(len(redlines))),
     ]
@@ -127,7 +128,7 @@ def generate_issues_list_docx(review, redlines: list) -> bytes:
             color=RGBColor(0xFF, 0xFF, 0xFF),
         )
 
-    if review.doc_kind != "docx":
+    if version.doc_kind != "docx":
         note = doc.add_paragraph()
         note.add_run(
             "This contract was uploaded as a PDF. The accompanying redline file is "

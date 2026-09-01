@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FileSignature, Loader2, Plus, Trash2 } from 'lucide-react'
+import { Clock, FileSignature, Loader2, Plus, Trash2 } from 'lucide-react'
 import PageLayout from '../components/PageLayout'
 import DataTable from '../components/DataTable'
 import Dialog from '../components/Dialog'
@@ -12,8 +12,11 @@ import {
   getPlaybooks,
   getReviews,
 } from '../services/api'
+import { waitingLabel } from '../lib/classifications'
 
-const RUNNING = ['pending', 'extracting', 'analyzing']
+// A negotiation is "moving" while its current round is still being processed;
+// that is the only time the list needs to refresh itself.
+const RUNNING = ['ai_in_progress']
 
 export default function ContractReviews() {
   const navigate = useNavigate()
@@ -47,7 +50,12 @@ export default function ContractReviews() {
 
   const handleDelete = async (e, id) => {
     e.stopPropagation()
-    if (!window.confirm('Delete this review and all of its findings?')) return
+    if (
+      !window.confirm(
+        'Delete this negotiation, every round of it, and all of its findings?',
+      )
+    )
+      return
     await deleteReview(id)
     setReviews((prev) => prev.filter((r) => r.id !== id))
   }
@@ -66,55 +74,86 @@ export default function ContractReviews() {
     {
       key: 'counterparty',
       header: 'Counterparty',
-      className: 'w-48',
+      className: 'w-44',
       render: (row) => (
         <span className="text-[13px] text-muted-foreground">{row.counterparty || '—'}</span>
       ),
     },
     {
-      key: 'doc_kind',
-      header: 'Source',
-      className: 'w-24',
-      render: (row) => (
-        <span
-          className="font-mono-num text-xs uppercase text-muted-foreground"
-          title={
-            row.doc_kind === 'pdf'
-              ? 'PDF upload — the exported redline cannot preserve formatting'
-              : 'Word upload — full tracked-changes export'
-          }
-        >
-          {row.doc_kind}
-        </span>
-      ),
-    },
-    {
       key: 'status',
       header: 'Status',
-      className: 'w-36',
+      className: 'w-40',
       render: (row) => <StatusBadge status={row.status} />,
     },
     {
-      key: 'findings',
-      header: 'Findings',
-      className: 'w-28',
+      key: 'round',
+      header: 'Round',
+      className: 'w-20',
       render: (row) => (
-        <span className="font-mono-num text-[13px] text-foreground">
-          {RUNNING.includes(row.status)
-            ? `${row.analyzed_count}/${row.total_clauses || '?'}`
-            : row.total_clauses}
+        <span
+          className="font-mono-num text-[13px] text-foreground"
+          title={
+            row.total_rounds > 1
+              ? `${row.total_rounds} versions exchanged so far`
+              : 'The counterparty’s opening paper'
+          }
+        >
+          R{row.current_round}
         </span>
       ),
     },
     {
-      key: 'created_at',
-      header: 'Created',
-      className: 'w-36',
-      render: (row) => (
-        <span className="font-mono-num text-xs text-muted-foreground">
-          {new Date(row.created_at).toLocaleDateString()}
-        </span>
-      ),
+      // The number that says whether the deal is nearly done. Findings counted
+      // per round would climb and fall as rounds turn over; open issues only
+      // fall, which is what a negotiation actually looks like.
+      key: 'open_issues',
+      header: 'Open issues',
+      className: 'w-28',
+      render: (row) =>
+        RUNNING.includes(row.status) ? (
+          <span className="font-mono-num text-[13px] text-muted-foreground">
+            {row.analyzed_count}/{row.total_clauses || '?'}
+          </span>
+        ) : (
+          <span className="font-mono-num text-[13px] text-foreground">
+            {row.open_issues}
+            <span className="text-muted-foreground">/{row.total_issues}</span>
+          </span>
+        ),
+    },
+    {
+      // Ageing, not a date. "12 days" is the thing that makes somebody pick up
+      // the phone; "24 Aug" is a fact nobody acts on.
+      key: 'waiting',
+      header: 'Waiting',
+      className: 'w-28',
+      render: (row) => {
+        const waiting =
+          row.status === 'pending_vendor' ? waitingLabel(row.sent_to_vendor_at) : null
+        if (!waiting) {
+          return (
+            <span className="font-mono-num text-xs text-muted-foreground">
+              {row.last_activity_at
+                ? new Date(row.last_activity_at).toLocaleDateString('en-GB', {
+                    day: '2-digit',
+                    month: 'short',
+                  })
+                : '—'}
+            </span>
+          )
+        }
+        const days = Number.parseInt(waiting, 10) || 0
+        return (
+          <span
+            className="inline-flex items-center gap-1 font-mono-num text-xs font-medium"
+            style={{ color: days >= 10 ? '#b91c1c' : days >= 5 ? '#c2410c' : 'var(--muted-foreground)' }}
+            title={`Sent ${new Date(row.sent_to_vendor_at).toLocaleDateString()}`}
+          >
+            <Clock className="h-3 w-3" />
+            {waiting}
+          </span>
+        )
+      },
     },
     {
       key: 'actions',
@@ -136,7 +175,7 @@ export default function ContractReviews() {
   return (
     <PageLayout
       title="Contract Reviews"
-      subtitle="Upload a contract to redline it against a playbook"
+      subtitle="Every negotiation, and where each one stands"
       breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Contract Reviews' }]}
       actions={
         <button type="button" className="btn-primary" onClick={() => setOpen(true)}>

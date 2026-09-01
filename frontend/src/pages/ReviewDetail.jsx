@@ -3,28 +3,39 @@ import { useParams, Link } from 'react-router-dom'
 import {
   AlertTriangle,
   ArrowLeft,
+  CheckCircle2,
   Download,
   FileText,
   ListChecks,
   Loader2,
   Plus,
   RefreshCw,
+  Send,
+  Undo2,
+  Upload,
 } from 'lucide-react'
 import ContractViewer from '../components/ContractViewer'
 import ErrorBoundary from '../components/ErrorBoundary'
+import FileUpload from '../components/FileUpload'
 import SourceDocument from '../components/SourceDocument'
 import RedlineList from '../components/RedlineList'
+import RoundStrip from '../components/RoundStrip'
 import Dialog from '../components/Dialog'
 import StatusBadge from '../components/StatusBadge'
 import {
+  addRound,
   contractFileUrl,
   createRedline,
   deleteRedline,
   exportIssues,
   exportRedline,
   getReview,
+  markComplete,
+  markSentToVendor,
+  setReviewStatus,
   updateRedline,
 } from '../services/api'
+import { waitingLabel } from '../lib/classifications'
 import { cn } from '../lib/utils'
 
 const VIEW_MODES = [
@@ -34,7 +45,7 @@ const VIEW_MODES = [
   { key: 'final', label: 'Final', hint: 'Every kept change applied, read clean.' },
 ]
 
-const RUNNING = ['pending', 'extracting', 'analyzing']
+const RUNNING = ['queued', 'pending', 'extracting', 'analyzing']
 
 export default function ReviewDetail() {
   const { id } = useParams()
@@ -46,11 +57,17 @@ export default function ReviewDetail() {
   const [exporting, setExporting] = useState(null)
   const [selection, setSelection] = useState(null)
   const [addOpen, setAddOpen] = useState(false)
+  const [roundOpen, setRoundOpen] = useState(false)
+  const [sendOpen, setSendOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  // null means "whatever the latest round is", so a finishing round pulls the
+  // view forward on its own instead of stranding the reviewer on the old one.
+  const [versionId, setVersionId] = useState(null)
   const pollRef = useRef(null)
 
   const load = useCallback(async () => {
     try {
-      const data = await getReview(id)
+      const data = await getReview(id, versionId)
       setReview(data)
       setSection((prev) => prev ?? data.sections?.[0] ?? null)
       return data
@@ -58,14 +75,22 @@ export default function ReviewDetail() {
       setError(e?.response?.data?.detail || 'Could not load this review.')
       return null
     }
-  }, [id])
+  }, [id, versionId])
 
   useEffect(() => {
     load()
   }, [load])
 
+  const version = review?.version
+  const versions = review?.versions ?? []
+  const isLatest = !version || version.id === versions[versions.length - 1]?.id
+  const roundDone = version?.status === 'completed'
+  const isRunning = Boolean(version && RUNNING.includes(version.status))
+  // A past round is a record of what was asked at the time. Editing it would
+  // build a redline against a document the counterparty has already replaced.
+  const readOnly = !isLatest || review?.status === 'completed'
+
   // Poll while the analysis is in flight so findings stream in as they land.
-  const isRunning = review && RUNNING.includes(review.status)
   useEffect(() => {
     if (!isRunning) {
       if (pollRef.current) clearInterval(pollRef.current)
@@ -90,10 +115,20 @@ export default function ReviewDetail() {
     [review, section],
   )
 
+  const selectRound = (nextId) => {
+    const latestId = versions[versions.length - 1]?.id
+    setVersionId(nextId === latestId ? null : nextId)
+    setActiveId(null)
+    setSection(null)
+  }
+
   const handleUpdate = async (redlineId, patch) => {
     const updated = await updateRedline(id, redlineId, patch)
     setReview((prev) => ({
       ...prev,
+      // The negotiation may have moved to In Process on the first edit, so the
+      // header has to follow rather than showing a status that is now stale.
+      status: prev.status === 'ai_completed' ? 'in_process' : prev.status,
       redlines: prev.redlines.map((r) => (r.id === redlineId ? updated : r)),
     }))
   }
@@ -119,7 +154,7 @@ export default function ReviewDetail() {
     setExporting(kind)
     try {
       if (kind === 'redline') {
-        const faithful = await exportRedline(id)
+        const faithful = await exportRedline(id, version?.id)
         if (!faithful) {
           window.alert(
             'This contract was uploaded as a PDF, so the redline was rebuilt from ' +
@@ -128,7 +163,7 @@ export default function ReviewDetail() {
           )
         }
       } else {
-        await exportIssues(id)
+        await exportIssues(id, version?.id)
       }
     } catch (e) {
       window.alert(e?.response?.data?.detail || 'Export failed.')
@@ -137,10 +172,31 @@ export default function ReviewDetail() {
     }
   }
 
+  const runAction = async (fn) => {
+    setBusy(true)
+    try {
+      await fn()
+      await load()
+    } catch (e) {
+      window.alert(e?.response?.data?.detail || 'That did not work.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleAddRound = async ({ file, note }, onProgress) => {
+    await addRound({ reviewId: id, file, note }, onProgress)
+    setRoundOpen(false)
+    setVersionId(null)
+    setActiveId(null)
+    setSection(null)
+    await load()
+  }
+
   const progress = useMemo(() => {
-    if (!review?.total_clauses) return 0
-    return Math.round((review.analyzed_count / review.total_clauses) * 100)
-  }, [review])
+    if (!version?.total_clauses) return 0
+    return Math.round((version.analyzed_count / version.total_clauses) * 100)
+  }, [version])
 
   if (error) {
     return (
@@ -161,7 +217,9 @@ export default function ReviewDetail() {
     )
   }
 
-  const done = review.status === 'completed'
+  const closed = review.status === 'completed'
+  const waiting = review.status === 'pending_vendor' ? waitingLabel(review.sent_to_vendor_at) : null
+  const openIssues = review.issues?.filter((i) => ['open', 'countered'].includes(i.status)).length ?? 0
 
   return (
     <div className="flex h-[calc(100svh-3.5rem)] flex-col">
@@ -177,10 +235,16 @@ export default function ReviewDetail() {
         <div className="min-w-0">
           <h1
             className="truncate text-[15px] font-semibold leading-tight text-foreground"
-            title={`${review.file_name} · reviewed against ${review.playbook?.name ?? ''}`}
+            title={`${version?.file_name ?? ''} · reviewed against ${review.playbook?.name ?? ''}`}
           >
             {review.name}
           </h1>
+          <p className="truncate text-[11.5px] text-muted-foreground">
+            {review.counterparty ? `${review.counterparty} · ` : ''}
+            {openIssues} open {openIssues === 1 ? 'issue' : 'issues'} of{' '}
+            {review.issues?.length ?? 0}
+            {waiting && ` · waiting ${waiting}`}
+          </p>
         </div>
         <StatusBadge status={review.status} />
         <div className="flex-1" />
@@ -188,7 +252,7 @@ export default function ReviewDetail() {
           type="button"
           className="btn-secondary h-8 px-3 text-[13px]"
           onClick={() => handleExport('issues')}
-          disabled={!done || exporting}
+          disabled={!roundDone || exporting}
           title="Download the issues list for circulation"
         >
           {exporting === 'issues' ? (
@@ -202,7 +266,7 @@ export default function ReviewDetail() {
           type="button"
           className="btn-primary h-8 px-3 text-[13px]"
           onClick={() => handleExport('redline')}
-          disabled={!done || exporting}
+          disabled={!roundDone || exporting}
           title="Download the marked-up contract with Word tracked changes"
         >
           {exporting === 'redline' ? (
@@ -212,6 +276,70 @@ export default function ReviewDetail() {
           )}
           Redlined .docx
         </button>
+      </div>
+
+      {/* The negotiation timeline, plus the only two decisions that are a
+          human's to make. Everything else about the status moves itself. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b bg-secondary/50 px-5 py-2">
+        <RoundStrip
+          versions={versions}
+          selectedId={version?.id}
+          onSelect={selectRound}
+          onAddRound={() => setRoundOpen(true)}
+          canAddRound={!closed && versions[versions.length - 1]?.status === 'completed'}
+        />
+        <div className="flex-1" />
+
+        {closed ? (
+          <button
+            type="button"
+            className="btn-secondary h-8 px-3 text-[12.5px]"
+            disabled={busy}
+            onClick={() => runAction(() => setReviewStatus(id, 'in_process', 'Reopened'))}
+            title="Put this negotiation back in play"
+          >
+            <Undo2 className="h-3.5 w-3.5" />
+            Reopen
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="btn-secondary h-8 px-3 text-[12.5px]"
+              disabled={busy || !roundDone || !isLatest || review.status === 'pending_vendor'}
+              onClick={() => setSendOpen(true)}
+              title={
+                review.status === 'pending_vendor'
+                  ? 'Already with the counterparty'
+                  : 'Record that this round’s redline went to the counterparty'
+              }
+            >
+              <Send className="h-3.5 w-3.5" />
+              Sent to vendor
+            </button>
+            <button
+              type="button"
+              className="btn-secondary h-8 px-3 text-[12.5px]"
+              disabled={busy}
+              onClick={() => {
+                if (
+                  openIssues &&
+                  !window.confirm(
+                    `${openIssues} ${openIssues === 1 ? 'issue is' : 'issues are'} still open. ` +
+                      'Close the negotiation anyway?',
+                  )
+                ) {
+                  return
+                }
+                runAction(() => markComplete(id))
+              }}
+              title="Close this negotiation"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Mark complete
+            </button>
+          </>
+        )}
       </div>
 
       {/* Split body */}
@@ -241,9 +369,9 @@ export default function ReviewDetail() {
             <ErrorBoundary label="The document could not be displayed">
             {mode === 'source' ? (
               <SourceDocument
-                url={contractFileUrl(review.id)}
-                fileName={review.file_name}
-                docKind={review.doc_kind}
+                url={contractFileUrl(review.id, version?.id)}
+                fileName={version?.file_name}
+                docKind={version?.doc_kind}
               />
             ) : (
             <ContractViewer
@@ -253,7 +381,7 @@ export default function ReviewDetail() {
               section={section}
               activeRedlineId={activeId}
               onSelectRedline={selectRedline}
-              selectionEnabled={done}
+              selectionEnabled={roundDone && !readOnly}
               onSelectBlocks={setSelection}
             />
             )}
@@ -266,12 +394,14 @@ export default function ReviewDetail() {
           <div className="flex h-10 shrink-0 items-center gap-2 border-b bg-card px-4">
             <FileText className="h-[15px] w-[15px] text-primary" />
             <span className="flex-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Findings
+              {version && version.round_number > 1
+                ? `Round ${version.round_number} — what moved`
+                : 'Findings'}
             </span>
             <button
               type="button"
               onClick={() => setAddOpen(true)}
-              disabled={!done}
+              disabled={!roundDone || readOnly}
               className="btn-secondary h-7 px-2.5 text-[12px]"
               title={
                 selection
@@ -294,9 +424,11 @@ export default function ReviewDetail() {
                 style={{ background: '#eff6ff', color: '#1d4ed8', borderColor: '#bfdbfe' }}
               >
                 <RefreshCw className="h-4 w-4 shrink-0 animate-spin" />
-                Reviewing the contract — findings appear as each clause is assessed.
+                {version.round_number > 1
+                  ? 'Comparing the counterparty’s response against what we sent.'
+                  : 'Reviewing the contract — findings appear as each clause is assessed.'}
               </div>
-              {review.total_clauses > 0 && (
+              {version.total_clauses > 0 && (
                 <div className="mt-2 h-1.5 w-full rounded-full bg-muted">
                   <div
                     className="h-1.5 rounded-full bg-primary transition-all"
@@ -307,14 +439,30 @@ export default function ReviewDetail() {
             </div>
           )}
 
-          {review.error_message && (
+          {/* A returned file with no revision marks can still be reconciled, but
+              only by comparing text — worth saying so rather than letting the
+              results look more precise than they are. */}
+          {roundDone && version?.round_number > 1 && !version.has_tracked_changes && (
+            <div className="shrink-0 border-b bg-card px-4 py-2.5">
+              <div
+                className="flex items-start gap-2 rounded-md border px-3 py-2 text-[12.5px]"
+                style={{ background: '#fefce8', color: '#a16207', borderColor: '#fde68a' }}
+              >
+                <AlertTriangle className="mt-[2px] h-3.5 w-3.5 shrink-0" />
+                This version came back without tracked changes, so the comparison is
+                based on the text alone. Check anything marked “Countered”.
+              </div>
+            </div>
+          )}
+
+          {version?.error_message && (
             <div className="shrink-0 border-b bg-card px-4 py-2.5">
               <div
                 className="flex items-start gap-2 rounded-md border px-3 py-2 text-[13px]"
                 style={{ background: '#fef2f2', color: '#b91c1c', borderColor: '#fecaca' }}
               >
                 <AlertTriangle className="mt-[2px] h-3.5 w-3.5 shrink-0" />
-                {review.error_message}
+                {version.error_message}
               </div>
             </div>
           )}
@@ -327,7 +475,8 @@ export default function ReviewDetail() {
               onSelect={selectRedline}
               onUpdate={handleUpdate}
               onDelete={handleDelete}
-              disabled={!done}
+              disabled={!roundDone}
+              readOnly={readOnly}
             />
             </ErrorBoundary>
           </div>
@@ -341,6 +490,23 @@ export default function ReviewDetail() {
         sections={review.sections || []}
         currentSection={section}
         onSubmit={handleAdd}
+      />
+
+      <VendorResponseDialog
+        open={roundOpen}
+        onClose={() => setRoundOpen(false)}
+        nextRound={(versions[versions.length - 1]?.round_number ?? 1) + 1}
+        onSubmit={handleAddRound}
+      />
+
+      <SentToVendorDialog
+        open={sendOpen}
+        onClose={() => setSendOpen(false)}
+        round={version?.round_number ?? 1}
+        onSubmit={async ({ sentAt, note }) => {
+          await runAction(() => markSentToVendor(id, { sentAt, note }))
+          setSendOpen(false)
+        }}
       />
     </div>
   )
@@ -366,6 +532,162 @@ function SegmentedControl({ value, onChange, options }) {
         </button>
       ))}
     </div>
+  )
+}
+
+/** Upload the file the counterparty sent back and start the next round. */
+function VendorResponseDialog({ open, onClose, nextRound, onSubmit }) {
+  const [file, setFile] = useState(null)
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState(0)
+
+  useEffect(() => {
+    if (open) {
+      setFile(null)
+      setNote('')
+      setProgress(0)
+    }
+  }, [open])
+
+  const submit = async (e) => {
+    e.preventDefault()
+    if (!file) return
+    setBusy(true)
+    try {
+      await onSubmit({ file, note: note.trim() }, setProgress)
+    } catch (err) {
+      window.alert(err?.response?.data?.detail || 'Could not start the next round.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title={`Upload the counterparty's response — round ${nextRound}`}
+      icon={Upload}
+      description="Word files with their tracked changes give the most precise comparison; a clean file or a PDF is compared on text alone."
+      maxWidth={580}
+    >
+      <form onSubmit={submit} className="space-y-3.5">
+        <div>
+          <label className="label">Their returned document</label>
+          <FileUpload
+            accept=".pdf,.docx"
+            selectedFile={file}
+            onFileSelect={setFile}
+            label="Drop the file they sent back"
+            hint="Supported: DOCX, PDF"
+          />
+        </div>
+
+        <div>
+          <label className="label">Note (optional)</label>
+          <input
+            className="input"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="e.g. Received from Morgan Nash, 24 Aug"
+          />
+        </div>
+
+        <p className="rounded-md border bg-secondary p-2.5 text-[12px] leading-relaxed text-muted-foreground">
+          Every point from the last round is checked against this file — accepted,
+          countered, or left alone — and anything they added is reviewed fresh
+          against the playbook.
+        </p>
+
+        {busy && progress > 0 && progress < 100 && (
+          <div className="h-1.5 w-full rounded-full bg-muted">
+            <div
+              className="h-1.5 rounded-full bg-primary transition-all"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" className="btn-secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button type="submit" className="btn-primary" disabled={busy || !file}>
+            {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            Start round {nextRound}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  )
+}
+
+/** The one status the app cannot observe for itself. */
+function SentToVendorDialog({ open, onClose, round, onSubmit }) {
+  const [sentAt, setSentAt] = useState('')
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (open) {
+      setSentAt(new Date().toISOString().slice(0, 10))
+      setNote('')
+    }
+  }, [open])
+
+  const submit = async (e) => {
+    e.preventDefault()
+    setBusy(true)
+    try {
+      await onSubmit({
+        sentAt: sentAt ? new Date(`${sentAt}T12:00:00`).toISOString() : null,
+        note: note.trim(),
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Sent to vendor"
+      icon={Send}
+      description="Nothing here can see an email leave your outbox, so this is the one status you set by hand. The date starts the clock on the reviews list."
+      maxWidth={480}
+    >
+      <form onSubmit={submit} className="space-y-3.5">
+        <div>
+          <label className="label">Date sent</label>
+          <input
+            type="date"
+            className="input"
+            value={sentAt}
+            onChange={(e) => setSentAt(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="label">What went out (optional)</label>
+          <input
+            className="input"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder={`e.g. Round ${round} redline + issues list to their counsel`}
+          />
+        </div>
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" className="btn-secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button type="submit" className="btn-primary" disabled={busy}>
+            {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            Mark as sent
+          </button>
+        </div>
+      </form>
+    </Dialog>
   )
 }
 

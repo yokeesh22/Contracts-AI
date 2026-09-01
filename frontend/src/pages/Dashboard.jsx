@@ -137,17 +137,21 @@ export default function Dashboard() {
           icon={FileSignature}
           iconBg="#e8f2fc"
           iconColor="#016ac9"
-          label="Contracts Reviewed"
+          label="Negotiations Closed"
           value={stats?.completed_reviews ?? 0}
-          sub={`${stats?.total_reviews ?? 0} uploaded in total`}
+          sub={`${stats?.total_reviews ?? 0} contracts · ${stats?.total_rounds ?? 0} rounds exchanged`}
         />
         <KpiCard
           icon={Activity}
           iconBg="#fff7ed"
           iconColor="#c2410c"
-          label="In Progress"
-          value={(stats?.total_reviews ?? 0) - (stats?.completed_reviews ?? 0)}
-          sub="reviews still running"
+          label="Pending Vendor"
+          value={stats?.pending_vendor ?? 0}
+          sub={
+            stats?.longest_wait_days
+              ? `longest wait ${stats.longest_wait_days} day${stats.longest_wait_days === 1 ? '' : 's'}`
+              : `${(stats?.total_reviews ?? 0) - (stats?.completed_reviews ?? 0)} negotiations live`
+          }
         />
         <KpiCard
           icon={ShieldAlert}
@@ -390,7 +394,7 @@ export default function Dashboard() {
                       <p className="truncate text-[13px] font-medium text-foreground">{r.name}</p>
                       <p className="mt-0.5 truncate text-xs text-muted-foreground">
                         {r.counterparty ? `${r.counterparty} · ` : ''}
-                        {r.total_clauses} findings ·{' '}
+                        R{r.current_round} · {r.open_issues} open ·{' '}
                         {new Date(r.created_at).toLocaleDateString('en-GB', {
                           day: '2-digit',
                           month: 'short',

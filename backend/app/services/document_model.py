@@ -566,3 +566,158 @@ def load_blocks(raw: str | None) -> list[dict]:
         return json.loads(raw)
     except (json.JSONDecodeError, TypeError):
         return []
+
+
+# --------------------------------------------------------------- annotations
+# What the counterparty did to the file we sent them. Read separately from the
+# block model because the blocks deliberately render the document as it now
+# stands - `_para_text` collects w:t and skips w:delText, so an incoming file
+# extracts as "all their changes accepted", which is the text we have to judge.
+# Their revision marks and margin comments are the *evidence* behind that text,
+# and a comment saying "our insurer will not allow uncapped indemnity" tells you
+# more about the landing zone than the redline itself does.
+
+
+def _revision_text(node) -> str:
+    """Text inside a w:ins or w:del. Deletions carry w:delText, not w:t."""
+    parts = []
+    for child in node.iter():
+        tag = child.tag.split("}")[-1]
+        if tag in ("t", "delText"):
+            parts.append(child.text or "")
+        elif tag == "tab":
+            parts.append("\t")
+    return _clean("".join(parts))
+
+
+def _read_comment_bodies(zf: zipfile.ZipFile) -> dict[str, dict]:
+    """id -> {author, date, text} from word/comments.xml."""
+    if "word/comments.xml" not in zf.namelist():
+        return {}
+    try:
+        root = ET.fromstring(zf.read("word/comments.xml"))
+    except ET.ParseError:
+        return {}
+
+    bodies: dict[str, dict] = {}
+    for comment in root.findall(f"{W}comment"):
+        cid = comment.get(f"{W}id")
+        if cid is None:
+            continue
+        text = _clean("\n".join(_para_text(p) for p in comment.findall(f"{W}p")))
+        if not text:
+            continue
+        bodies[cid] = {
+            "author": comment.get(f"{W}author") or "Counterparty",
+            "date": comment.get(f"{W}date"),
+            "text": text,
+        }
+    return bodies
+
+
+def extract_docx_annotations(file_path: str) -> dict:
+    """Tracked changes and margin comments, keyed to the body position they sit in.
+
+    Returns `{"has_tracked_changes": bool, "revisions": [...], "comments": [...]}`
+    where every entry carries the `w_index` of the paragraph it belongs to. That
+    is the same coordinate the block model records, so the two are joined by
+    `attach_annotations` without re-parsing the document.
+    """
+    revisions: list[dict] = []
+    comments: list[dict] = []
+
+    try:
+        with zipfile.ZipFile(file_path) as z:
+            if "word/document.xml" not in z.namelist():
+                return {"has_tracked_changes": False, "revisions": [], "comments": []}
+            root = ET.fromstring(z.read("word/document.xml"))
+            bodies = _read_comment_bodies(z)
+    except (zipfile.BadZipFile, ET.ParseError, KeyError):
+        logger.warning("Could not read annotations from %s", os.path.basename(file_path))
+        return {"has_tracked_changes": False, "revisions": [], "comments": []}
+
+    body = root.find(f"{W}body")
+    if body is None:
+        return {"has_tracked_changes": False, "revisions": [], "comments": []}
+
+    for w_index, child in enumerate(body):
+        for node in child.iter():
+            tag = node.tag.split("}")[-1]
+
+            if tag in ("ins", "del"):
+                text = _revision_text(node)
+                if not text:
+                    continue
+                revisions.append(
+                    {
+                        "w_index": w_index,
+                        "type": "insert" if tag == "ins" else "delete",
+                        "author": node.get(f"{W}author") or "Counterparty",
+                        "date": node.get(f"{W}date"),
+                        "text": text,
+                    }
+                )
+
+            elif tag in ("commentRangeStart", "commentReference"):
+                cid = node.get(f"{W}id")
+                body_text = bodies.get(cid) if cid is not None else None
+                if not body_text:
+                    continue
+                # commentRangeStart and commentReference both point at the same
+                # comment; only record it once, at the first paragraph it touches.
+                if any(c["id"] == cid for c in comments):
+                    continue
+                comments.append({"id": cid, "w_index": w_index, **body_text})
+
+    return {
+        "has_tracked_changes": bool(revisions),
+        "revisions": revisions,
+        "comments": comments,
+    }
+
+
+def attach_annotations(blocks: list[dict], annotations: dict) -> list[dict]:
+    """Fold revisions and comments onto the blocks they belong to.
+
+    Several blocks can share a `w_index` - a table occupies one body position
+    but expands into a row per line - so an annotation on a table lands on every
+    row of it. That is the honest reading: the annotation is somewhere in there.
+    """
+    if not annotations:
+        return blocks
+
+    by_w: dict[int, list[dict]] = {}
+    for block in blocks:
+        w_index = block.get("w_index")
+        if w_index is not None:
+            by_w.setdefault(w_index, []).append(block)
+
+    positions = sorted(by_w)
+
+    def targets(w_index: int) -> list[dict]:
+        """Blocks for a body position, falling back to the nearest one above it.
+
+        A paragraph the counterparty deleted outright has no block at all - its
+        text lives entirely in w:delText, which the extractor skips because the
+        clause to judge is the document as it now reads. Their comment on that
+        paragraph is still the most informative thing about the deletion, so it
+        attaches to the clause it sat under rather than being dropped.
+        """
+        if w_index in by_w:
+            return by_w[w_index]
+        earlier = [p for p in positions if p < w_index]
+        return by_w[earlier[-1]] if earlier else []
+
+    for revision in annotations.get("revisions", []):
+        for block in targets(revision["w_index"]):
+            block.setdefault("revisions", []).append(
+                {k: revision[k] for k in ("type", "author", "text")}
+            )
+
+    for comment in annotations.get("comments", []):
+        for block in targets(comment["w_index"]):
+            block.setdefault("comments", []).append(
+                {k: comment[k] for k in ("author", "text")}
+            )
+
+    return blocks

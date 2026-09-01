@@ -35,7 +35,11 @@ export const deleteRule = (playbookId, ruleId) =>
 
 export const getReviews = () => api.get('/reviews').then((r) => r.data)
 
-export const getReview = (id) => api.get(`/reviews/${id}`).then((r) => r.data)
+/** One negotiation. Omit `versionId` for the latest round, which is the default view. */
+export const getReview = (id, versionId) =>
+  api
+    .get(`/reviews/${id}`, versionId ? { params: { version_id: versionId } } : undefined)
+    .then((r) => r.data)
 
 export const createReview = (
   { playbookId, name, counterparty, file },
@@ -59,8 +63,45 @@ export const createReview = (
 
 export const deleteReview = (id) => api.delete(`/reviews/${id}`)
 
-// Direct URL to the original upload — used for download and the PDF fallback.
-export const contractFileUrl = (id) => `/api/reviews/${id}/file`
+/** Upload the version the counterparty sent back; starts the next round. */
+export const addRound = ({ reviewId, file, note }, onProgress) => {
+  const form = new FormData()
+  form.append('file', file)
+  if (note) form.append('note', note)
+  return api
+    .post(`/reviews/${reviewId}/rounds`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 0,
+      onUploadProgress: (e) => {
+        if (onProgress && e.total) onProgress(Math.round((e.loaded * 100) / e.total))
+      },
+    })
+    .then((r) => r.data)
+}
+
+// ── Negotiation status ───────────────────────────────────────────────────────
+// Only two transitions are ever a human's to make. Everything else follows from
+// what the app can observe, so there is no button for it.
+
+/** "I emailed the redline." The one thing the app cannot see for itself. */
+export const markSentToVendor = (id, { sentAt, note } = {}) =>
+  api
+    .post(`/reviews/${id}/sent`, { sent_at: sentAt || null, note: note || null })
+    .then((r) => r.data)
+
+export const markComplete = (id, note) =>
+  api.post(`/reviews/${id}/complete`, { note: note || null }).then((r) => r.data)
+
+export const setReviewStatus = (id, status, note) =>
+  api.patch(`/reviews/${id}/status`, { status, note: note || null }).then((r) => r.data)
+
+/** Move one negotiating point in the ledger — agreed, conceded, dropped. */
+export const updateIssue = (reviewId, issueId, status) =>
+  api.patch(`/reviews/${reviewId}/issues/${issueId}`, { status }).then((r) => r.data)
+
+// Direct URL to a round's upload — used for download and the PDF fallback.
+export const contractFileUrl = (id, versionId) =>
+  versionId ? `/api/reviews/${id}/file?version_id=${versionId}` : `/api/reviews/${id}/file`
 
 // ── Redline editing ──────────────────────────────────────────────────────────
 
@@ -87,9 +128,12 @@ function downloadBlob(response, fallbackName) {
 }
 
 /** The marked-up contract as a Word file with tracked changes. */
-export const exportRedline = (reviewId) =>
+export const exportRedline = (reviewId, versionId) =>
   api
-    .get(`/reviews/${reviewId}/export/redline`, { responseType: 'blob' })
+    .get(`/reviews/${reviewId}/export/redline`, {
+      responseType: 'blob',
+      params: versionId ? { version_id: versionId } : undefined,
+    })
     .then((r) => {
       downloadBlob(r, `Redline_${reviewId}.docx`)
       // "false" for PDF sources, where formatting could not be preserved.
@@ -97,9 +141,12 @@ export const exportRedline = (reviewId) =>
     })
 
 /** The issues list — the tabular summary for circulation. */
-export const exportIssues = (reviewId) =>
+export const exportIssues = (reviewId, versionId) =>
   api
-    .get(`/reviews/${reviewId}/export/issues`, { responseType: 'blob' })
+    .get(`/reviews/${reviewId}/export/issues`, {
+      responseType: 'blob',
+      params: versionId ? { version_id: versionId } : undefined,
+    })
     .then((r) => downloadBlob(r, `IssuesList_${reviewId}.docx`))
 
 // ── Stats ────────────────────────────────────────────────────────────────────

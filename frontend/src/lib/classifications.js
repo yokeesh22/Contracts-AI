@@ -92,3 +92,102 @@ export function countByClassification(redlines = []) {
     return acc
   }, {})
 }
+
+// ── Where the negotiation stands ─────────────────────────────────────────────
+// Two axes, deliberately kept apart. A round's status is machine state; a
+// negotiation's status is where the deal stands, and only two of its values are
+// ever set by a human — because only two describe something the app cannot see.
+
+export const NEGOTIATION_STATUS = {
+  ai_in_progress: {
+    label: 'AI in Progress',
+    hint: 'The current round is being analysed.',
+    manual: false,
+  },
+  ai_completed: {
+    label: 'AI Completed',
+    hint: 'Analysis finished. Nobody has worked the findings yet.',
+    manual: false,
+  },
+  in_process: {
+    label: 'In Process',
+    hint: 'A reviewer is working through the redlines.',
+    manual: false,
+  },
+  pending_vendor: {
+    label: 'Pending Vendor',
+    hint: 'Sent to the counterparty. Waiting on their response.',
+    manual: true,
+  },
+  completed: {
+    label: 'Completed',
+    hint: 'Negotiation closed.',
+    manual: true,
+  },
+  failed: { label: 'Failed', hint: 'The current round could not be processed.', manual: false },
+}
+
+// What the counterparty did to a position we put to them last round. Derived by
+// diffing their returned file, so these are findings rather than guesses.
+export const VENDOR_ACTION = {
+  accepted: {
+    label: 'Accepted',
+    short: 'Accepted',
+    hint: 'They took our proposed wording.',
+    bg: 'var(--acceptable-bg)',
+    fg: 'var(--acceptable-fg)',
+  },
+  countered: {
+    label: 'Countered',
+    short: 'Countered',
+    hint: 'They proposed something else. Read what they wrote.',
+    bg: 'var(--negotiable-bg)',
+    fg: 'var(--negotiable-fg)',
+  },
+  rejected: {
+    label: 'No change',
+    short: 'No change',
+    hint: 'They left the clause exactly as originally drafted.',
+    bg: 'var(--unacceptable-bg)',
+    fg: 'var(--unacceptable-fg)',
+  },
+  ignored: {
+    label: 'No response',
+    short: 'No response',
+    hint: 'They did not add the clause we asked for.',
+    bg: 'var(--missing-bg)',
+    fg: 'var(--missing-fg)',
+  },
+  removed: {
+    label: 'Clause deleted',
+    short: 'Deleted',
+    hint: 'They struck this clause from the document entirely.',
+    bg: 'var(--missing-bg)',
+    fg: 'var(--missing-fg)',
+  },
+}
+
+export const ISSUE_STATUS = {
+  open: { label: 'Open', settled: false },
+  countered: { label: 'Countered', settled: false },
+  agreed: { label: 'Agreed', settled: true },
+  conceded: { label: 'Conceded', settled: true },
+  dropped: { label: 'Dropped', settled: true },
+}
+
+export const isSettled = (issueStatus) => Boolean(ISSUE_STATUS[issueStatus]?.settled)
+
+/** "12 days" since a timestamp, for the ageing column on the reviews list. */
+export function daysSince(iso) {
+  if (!iso) return null
+  const then = new Date(iso)
+  if (Number.isNaN(then.getTime())) return null
+  return Math.max(0, Math.floor((Date.now() - then.getTime()) / 86400000))
+}
+
+export function waitingLabel(iso) {
+  const days = daysSince(iso)
+  if (days === null) return null
+  if (days === 0) return 'today'
+  return `${days} day${days === 1 ? '' : 's'}`
+}

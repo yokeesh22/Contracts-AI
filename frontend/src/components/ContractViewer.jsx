@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
+import { MessageSquareQuote, PenLine } from 'lucide-react'
 import { cn, scrollIntoView } from '../lib/utils'
 
 /**
@@ -152,6 +153,7 @@ export default function ContractViewer({
               onClick={() => redline && onSelectRedline?.(redline.id)}
               title={redline ? redline.clause_title || undefined : undefined}
             >
+              <CounterpartyMarks block={block} />
               <BlockBody block={block} redline={redline} mode={mode} />
             </div>
           )
@@ -243,6 +245,57 @@ function DocTable({
         </tbody>
       </table>
     </div>
+  )
+}
+
+/**
+ * What the counterparty themselves did to this paragraph.
+ *
+ * Distinct from our redline, and worth showing separately: the reconciliation
+ * says what we concluded about their response, this says what they actually
+ * marked. When the two disagree the reviewer needs to be able to see it, and a
+ * margin comment explaining why they pushed back is usually the most useful
+ * sentence on the page.
+ *
+ * Floated rather than absolutely positioned so it flows with the text instead
+ * of overlapping the line beneath it on a narrow pane.
+ */
+function CounterpartyMarks({ block }) {
+  const revisions = block.revisions || []
+  const comments = block.comments || []
+  if (!revisions.length && !comments.length) return null
+
+  const title = [
+    ...revisions.map(
+      (r) => `${r.author} ${r.type === 'insert' ? 'inserted' : 'deleted'}: ${r.text}`,
+    ),
+    ...comments.map((c) => `${c.author} commented: ${c.text}`),
+  ].join('\n\n')
+
+  return (
+    <span
+      className="ml-2 inline-flex select-none items-center gap-1 rounded-full border px-1.5 py-0.5 align-middle text-[10px] font-medium"
+      style={{
+        float: 'right',
+        background: 'var(--brand-primary-light)',
+        color: 'var(--primary)',
+        borderColor: 'transparent',
+      }}
+      title={title}
+    >
+      {revisions.length > 0 && (
+        <>
+          <PenLine className="h-2.5 w-2.5" />
+          {revisions.length}
+        </>
+      )}
+      {comments.length > 0 && (
+        <>
+          <MessageSquareQuote className="h-2.5 w-2.5" />
+          {comments.length}
+        </>
+      )}
+    </span>
   )
 }
 
