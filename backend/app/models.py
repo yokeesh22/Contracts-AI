@@ -239,6 +239,13 @@ class ContractVersion(Base):
     annotations_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     has_tracked_changes: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # Which playbook positions were actually located in this document, as a
+    # JSON list of clause types. Absence is computed by set difference against
+    # this, and a later round only re-analyses paragraphs that changed - so
+    # without carrying the set forward, every clause the round did not need to
+    # look at again reads as one that is no longer there.
+    found_types: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     status: Mapped[str] = mapped_column(String(50), default="queued")
     # See ROUND_STATUSES. Machine state only - never set by a human.
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

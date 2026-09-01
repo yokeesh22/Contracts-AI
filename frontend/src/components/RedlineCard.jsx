@@ -321,6 +321,16 @@ export default function RedlineCard({
                       {entry.round}
                     </span>
                     <div className="min-w-0 flex-1 space-y-0.5">
+                      {/* A round where we proposed nothing and they did nothing
+                          still has to say so. Rendering only the two optional
+                          lines left an empty numbered row, which reads as data
+                          that failed to load rather than as a quiet round. */}
+                      {!entry.our_proposal && !entry.vendor_action && (
+                        <p className="text-[11.5px] leading-snug text-muted-foreground">
+                          Assessed as {metaFor(entry.classification).short.toLowerCase()} — no
+                          edit proposed.
+                        </p>
+                      )}
                       {entry.our_proposal && (
                         <p className="text-[11.5px] leading-snug text-muted-foreground">
                           <span className="font-medium text-foreground">We asked: </span>

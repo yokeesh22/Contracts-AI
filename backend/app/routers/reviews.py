@@ -319,8 +319,11 @@ def _run_first_round(version_id: int) -> None:
             version.analyzed_count = order
             db.commit()
 
-        # Required protections with no clause anywhere in the contract.
+        # Required protections with no clause anywhere in the contract. The
+        # opening round looked at every paragraph, so its set difference is
+        # sound — unlike a later round, which only re-reads what changed.
         found_types = {h["clause_type"] for h in hits}
+        version.found_types = json.dumps(sorted(found_types))
         order = _raise_missing(db, review, version, rules, found_types, order)
 
         _finish_round(db, review, version, order)
@@ -493,19 +496,40 @@ def _run_next_round(version_id: int) -> None:
             version.analyzed_count = order
             db.commit()
 
+        # What the contract was already known to contain. A round only
+        # re-analyses paragraphs that changed, so it never re-detects the
+        # clauses it had no reason to look at again — and computing absence
+        # from this round's hits alone declared every untouched protection
+        # missing, inventing a dozen findings out of a document nobody edited.
+        baseline = None
+        if prior.found_types:
+            try:
+                baseline = set(json.loads(prior.found_types))
+            except (json.JSONDecodeError, TypeError):
+                baseline = None
+        found_types = set() if baseline is None else set(baseline)
+        found_types.update(
+            r.clause_type
+            for r in db.query(Redline).filter(Redline.version_id == version.id).all()
+            if r.clause_type and r.classification != "MISSING"
+        )
+
         # Their edits are where fresh risk enters: a new limitation of liability,
         # a widened IP grant, an auto-renewal nobody asked for. Only new language
         # gets the full treatment.
         order = _analyse_new_language(
-            db, review, version, blocks, prior_blocks, rules_by_type, claimed, order
+            db, review, version, blocks, prior_blocks, rules_by_type, claimed,
+            order, found_types,
         )
 
-        found_types = {
-            r.clause_type
-            for r in db.query(Redline).filter(Redline.version_id == version.id).all()
-            if r.clause_type and r.classification != "MISSING"
-        }
-        order = _raise_missing(db, review, version, rules, found_types, order)
+        version.found_types = json.dumps(sorted(found_types))
+        # A round recorded before this set was kept cannot say what the contract
+        # contains, and guessing from the handful of clauses this round happened
+        # to re-analyse would report every untouched protection as absent. A gap
+        # that was real was already raised as an issue in the round that found
+        # it, and carries forward on its own.
+        if baseline is not None:
+            order = _raise_missing(db, review, version, rules, found_types, order)
 
         _finish_round(db, review, version, order)
 
@@ -568,13 +592,15 @@ def _carry_forward(
     if action == "ignored":
         action = "rejected"
 
-    if not was_raised and not was_settled:
-        # They cannot have declined something they never received. All that
-        # matters is whether they touched the clause of their own accord.
-        if action == "rejected":
-            action = "not_sent"
-        elif action == "countered":
-            action = "new_change"
+    # They cannot have declined something they never received — and a point
+    # already settled is not re-litigated by them leaving it alone. A clause the
+    # opening round judged acceptable has no edit to send and an issue that is
+    # agreed on arrival; reporting their silence on it as a refusal put "Vendor
+    # rejected" next to "Agreed" on the same row, which is a contradiction.
+    if action == "rejected" and (not was_raised or was_settled):
+        action = "not_sent"
+    elif action == "countered" and not was_raised:
+        action = "new_change"
 
     # A point that was already put to bed and has moved again is the one thing
     # in a late round nobody can afford to skim past.
@@ -603,9 +629,11 @@ def _carry_forward(
         )
 
     elif action == "not_sent":
-        # Carried forward exactly as it stood. No note about the counterparty,
-        # because the counterparty had nothing to do with it.
-        pass
+        # Carried forward exactly as it stood. The counterparty had nothing to
+        # do with it, so neither our decision nor the point's standing moves —
+        # resetting either would quietly undo a call somebody already made.
+        status = previous.status
+        issue_status = issue.status if issue else "open"
 
     elif action == "rejected":
         if was_settled:
@@ -736,6 +764,7 @@ def _analyse_new_language(
     rules_by_type: dict,
     claimed: list[tuple[int, int]],
     order: int,
+    found_types: set[str],
 ) -> int:
     """Run the playbook over paragraphs the counterparty added or rewrote."""
     fresh = changed_blocks(blocks, prior_blocks)
@@ -752,6 +781,8 @@ def _analyse_new_language(
     }
 
     hits = locate_clauses(fresh, list(rules_by_type.keys()))
+    found_types.update(h["clause_type"] for h in hits)
+
     for group in group_hits(hits):
         # A clause already threaded from last round is not new risk, however
         # much of it they retyped.

@@ -35,6 +35,7 @@ _REDLINE_COLUMNS = {
 
 _VERSION_COLUMNS = {
     "sent_redline_ids": "TEXT",
+    "found_types": "TEXT",
 }
 
 # The vendor-action vocabulary was consolidated: "they did not add the clause"
